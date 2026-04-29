@@ -1,0 +1,22 @@
+FROM ros:humble-ros-base
+
+ENV DEBIAN_FRONTEND=noninteractive
+SHELL ["/bin/bash", "-c"]
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3-pip \
+    python3-pytest \
+    python3-numpy \
+    python3-opencv \
+    python3-pil \
+    python3-typing-extensions \
+    python3-colcon-common-extensions \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip3 install --no-cache-dir --no-deps \
+    'typing_extensions>=4.5' \
+    'grpcio>=1.50' \
+    'grpcio-tools>=1.50' \
+    'protobuf>=4.21'
+
+WORKDIR /workspace
