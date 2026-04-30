@@ -36,8 +36,12 @@ from .grpc_client import VLAClient
 from .adapters.base import EdgeAdapter
 
 
-def _build_adapter(kind: str) -> EdgeAdapter:
-    """Construct the EdgeAdapter selected by the ``adapter_kind`` parameter."""
+def _build_adapter(kind: str, *, params: dict) -> EdgeAdapter:
+    """Construct the EdgeAdapter selected by the ``adapter_kind`` parameter.
+
+    ``params`` is a dict of node parameters used by adapters that need extra
+    config (e.g. AsyncVLA's Edge_adapter weights path).
+    """
     if kind == 'stub':
         from .adapters.stub import StubAdapter
         return StubAdapter()
@@ -45,8 +49,12 @@ def _build_adapter(kind: str) -> EdgeAdapter:
         from .adapters.omnivla import OmniVLAEdgeAdapter
         return OmniVLAEdgeAdapter()
     if kind == 'asyncvla':
-        from .adapters.asyncvla import AsyncVLAEdgeAdapter  # type: ignore[import-not-found]
-        return AsyncVLAEdgeAdapter()
+        from .adapters.asyncvla import AsyncVLAEdgeAdapter
+        return AsyncVLAEdgeAdapter(
+            weights_path=str(params.get('asyncvla_weights_path', '/workspace/AsyncVLA_release')),
+            resume_step=int(params.get('asyncvla_resume_step', 750000)),
+            device=str(params.get('asyncvla_device', 'cpu')),
+        )
     raise ValueError(f'unknown adapter_kind: {kind!r} (choices: stub|asyncvla|omnivla)')
 
 
@@ -115,6 +123,10 @@ class VLAEdgeNode(LifecycleNode):
         self.declare_parameter('embedding_debug_topic', '/raspicat_vla/embedding')
         self.declare_parameter('publish_embedding_debug', True)
         self.declare_parameter('adapter_kind', 'stub')  # stub|asyncvla|omnivla
+        # AsyncVLA edge knobs (only used when adapter_kind='asyncvla').
+        self.declare_parameter('asyncvla_weights_path', '/workspace/AsyncVLA_release')
+        self.declare_parameter('asyncvla_resume_step', 750000)
+        self.declare_parameter('asyncvla_device', 'cpu')
 
     # ------------------------------------------------------------- lifecycle
 
@@ -126,7 +138,12 @@ class VLAEdgeNode(LifecycleNode):
         self._cache = EmbeddingCache(max_age_sec=float(max_age), hard_timeout_sec=float(hard))
         self._client = VLAClient(address=addr, on_embedding=self._on_embedding_received)
         adapter_kind = str(self.get_parameter('adapter_kind').value)
-        self._adapter = _build_adapter(adapter_kind)
+        adapter_params = {
+            'asyncvla_weights_path': self.get_parameter('asyncvla_weights_path').value,
+            'asyncvla_resume_step': self.get_parameter('asyncvla_resume_step').value,
+            'asyncvla_device': self.get_parameter('asyncvla_device').value,
+        }
+        self._adapter = _build_adapter(adapter_kind, params=adapter_params)
         self.get_logger().info(f'edge adapter_kind={adapter_kind!r}')
 
         image_topic = self.get_parameter('image_topic').value
