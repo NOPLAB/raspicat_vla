@@ -11,6 +11,12 @@
 
   <exec_depend>raspicat_vla_edge</exec_depend>
   <exec_depend>raspicat_vla_remote</exec_depend>
+  <exec_depend>raspicat</exec_depend>
+  <exec_depend>raspicat_bringup</exec_depend>
+  <exec_depend>raspicat_description</exec_depend>
+  <exec_depend>raspicat_gazebo</exec_depend>
+  <exec_depend>raspicat_navigation</exec_depend>
+  <exec_depend>raspicat_slam</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>
