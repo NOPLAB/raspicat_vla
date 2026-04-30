@@ -1,8 +1,6 @@
-# raspicat-async-vla
+# raspicat-vla
 
-ROS2 Humble nodes for running [AsyncVLA](https://github.com/NHirose/AsyncVLA) navigation on the Raspberry Pi Cat (rt-net `raspicat`).
-
-See `docs/superpowers/specs/2026-04-29-asyncvla-control-node-design.md` for full design.
+ROS2 Humble nodes for running VLA navigation on the Raspberry Pi Cat (rt-net `raspicat`).
 
 ## Workspace layout
 
@@ -24,8 +22,3 @@ rosdep install --from-paths src --ignore-src -r -y
 colcon build --symlink-install
 source install/setup.bash
 ```
-
-## Plans / specs
-
-- Spec: `docs/superpowers/specs/2026-04-29-asyncvla-control-node-design.md`
-- Plan 1 (this MVP): `docs/superpowers/plans/2026-04-29-asyncvla-mvp-wiring.md`
