@@ -4,7 +4,6 @@ from __future__ import annotations
 import logging
 import queue
 import threading
-import time
 from typing import Callable, Optional
 
 import grpc
@@ -98,8 +97,14 @@ class AsyncVLAClient:
                 backoff = min(backoff * 2.0, self._max_backoff)
 
     def _request_iter(self):
+        # Poll with a short timeout so a stop_event set while the queue is
+        # full (and put_nowait of the sentinel raised queue.Full) still wakes
+        # us up promptly instead of blocking forever.
         while not self._stop_event.is_set():
-            item = self._queue.get()
+            try:
+                item = self._queue.get(timeout=0.2)
+            except queue.Empty:
+                continue
             if item is self._sentinel:
                 return
             yield item

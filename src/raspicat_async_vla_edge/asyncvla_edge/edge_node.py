@@ -27,7 +27,7 @@ from raspicat_async_vla_msgs.msg import (
 from raspicat_async_vla_proto import asyncvla_pb2
 from raspicat_async_vla_proto.conversions import (
     fp16_bytes_to_float32_list,
-    float32_array_to_fp16_bytes,
+    proto_action_embedding_to_msg,
 )
 
 from .preprocess import resize_and_jpeg
@@ -163,7 +163,7 @@ class AsyncVLAEdgeNode(LifecycleNode):
         self.get_logger().info('on_deactivate')
         for t in (self._send_timer, self._action_timer, self._status_timer):
             if t is not None:
-                t.cancel()
+                self.destroy_timer(t)
         self._send_timer = self._action_timer = self._status_timer = None
         return super().on_deactivate(state)
 
@@ -173,6 +173,20 @@ class AsyncVLAEdgeNode(LifecycleNode):
             self._client.stop()
         self._client = None
         self._cache = None
+        # Destroy subscriptions and publishers so a subsequent configure
+        # doesn't leak duplicates (lifecycle expects on_cleanup to invert
+        # on_configure).
+        if self._image_sub is not None:
+            self.destroy_subscription(self._image_sub)
+            self._image_sub = None
+        if self._goal_sub is not None:
+            self.destroy_subscription(self._goal_sub)
+            self._goal_sub = None
+        for pub_attr in ('_path_pub', '_status_pub', '_embedding_pub'):
+            pub = getattr(self, pub_attr)
+            if pub is not None:
+                self.destroy_publisher(pub)
+                setattr(self, pub_attr, None)
         return TransitionCallbackReturn.SUCCESS
 
     def on_shutdown(self, state: State) -> TransitionCallbackReturn:  # noqa: ARG002
@@ -251,7 +265,6 @@ class AsyncVLAEdgeNode(LifecycleNode):
         )
         self._cache.put(cached)
         if self._embedding_pub is not None:
-            from raspicat_async_vla_proto.conversions import proto_action_embedding_to_msg
             ros_msg = proto_action_embedding_to_msg(proto_emb)
             ros_msg.header.stamp = self.get_clock().now().to_msg()
             self._embedding_pub.publish(ros_msg)

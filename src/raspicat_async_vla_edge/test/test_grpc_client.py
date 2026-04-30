@@ -9,7 +9,6 @@ The client must:
 import threading
 import time
 
-import numpy as np
 import pytest
 
 from asyncvla_remote.dummy_server import DummyServer

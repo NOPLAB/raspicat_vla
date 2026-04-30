@@ -11,6 +11,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pil \
     python3-typing-extensions \
     python3-colcon-common-extensions \
+    ros-humble-cv-bridge \
+    ros-humble-diagnostic-msgs \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip3 install --no-cache-dir --no-deps \

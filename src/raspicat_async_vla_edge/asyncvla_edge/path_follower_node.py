@@ -1,7 +1,6 @@
 """ROS2 wrapper around PurePursuit: subscribe to Path, publish Twist."""
 from __future__ import annotations
 
-import math
 from typing import List
 
 import rclpy
@@ -22,7 +21,11 @@ class PathFollowerNode(Node):
         self.declare_parameter('rate_hz', 20.0)
         self.declare_parameter('path_topic', '/asyncvla/predicted_path')
         self.declare_parameter('cmd_vel_topic', '/cmd_vel')
-        self.declare_parameter('path_in_robot_frame', True)
+        # Plan 1: paths are always treated as being expressed in the robot
+        # frame (typically base_link). If a path arrives with a different
+        # frame_id we warn and zero the command, since blindly following
+        # would steer toward the wrong pose.
+        self.declare_parameter('expected_frame', 'base_link')
 
         self._pp = PurePursuit(
             lookahead=float(self.get_parameter('lookahead').value),
@@ -30,7 +33,9 @@ class PathFollowerNode(Node):
             max_w=float(self.get_parameter('max_w').value),
             no_backward=True,
         )
+        self._expected_frame: str = str(self.get_parameter('expected_frame').value)
         self._latest: List[Waypoint] = []
+        self._frame_mismatch: bool = False
         self._sub = self.create_subscription(
             Path,
             self.get_parameter('path_topic').value,
@@ -43,13 +48,22 @@ class PathFollowerNode(Node):
         self._timer = self.create_timer(1.0 / rate, self._tick)
 
     def _on_path(self, msg: Path) -> None:
+        if msg.header.frame_id and msg.header.frame_id != self._expected_frame:
+            if not self._frame_mismatch:
+                self.get_logger().warn(
+                    f'path frame_id={msg.header.frame_id!r} != '
+                    f'expected {self._expected_frame!r}; zeroing cmd_vel'
+                )
+            self._frame_mismatch = True
+            self._latest = []
+            return
+        self._frame_mismatch = False
         wps: List[Waypoint] = []
         for ps in msg.poses:
             wps.append(Waypoint(x=ps.pose.position.x, y=ps.pose.position.y))
         self._latest = wps
 
     def _tick(self) -> None:
-        # Plan 1 simplification: assume path is in robot frame so the robot pose is origin.
         cmd = self._pp.compute(robot=Pose2D(0.0, 0.0, 0.0), path=self._latest)
         twist = Twist()
         twist.linear.x = float(cmd.linear)

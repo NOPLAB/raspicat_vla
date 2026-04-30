@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import threading
 import time
 from concurrent import futures
 from typing import Iterator, Optional
