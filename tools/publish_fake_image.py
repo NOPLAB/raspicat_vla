@@ -8,14 +8,14 @@ from geometry_msgs.msg import PoseStamped
 from rclpy.node import Node
 from sensor_msgs.msg import Image
 
-from raspicat_async_vla_msgs.msg import GoalSpec as GoalSpecMsg
+from raspicat_vla_msgs.msg import GoalSpec as GoalSpecMsg
 
 
 class FakePub(Node):
     def __init__(self) -> None:
         super().__init__('fake_pub')
         self._img_pub = self.create_publisher(Image, '/camera/image_raw', 1)
-        self._goal_pub = self.create_publisher(GoalSpecMsg, '/asyncvla/goal', 1)
+        self._goal_pub = self.create_publisher(GoalSpecMsg, '/raspicat_vla/goal', 1)
         self._timer = self.create_timer(0.2, self._tick)
         self._goal_sent = False
 
