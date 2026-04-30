@@ -1,34 +1,105 @@
+# Dockerfile.sim — raspicat Gazebo simulation + raspicat-vla edge stack.
+#
+# Bundles:
+#  - ROS2 Humble desktop-full (Gazebo Classic 11)
+#  - rt-net raspicat sim packages (raspicat_ros, raspicat_description,
+#    raspicat_sim, raspicat_slam_navigation), pre-built in /opt/sim_ws.
+#  - CPU torch 2.2 + efficientnet_pytorch + grpcio so the edge node can run
+#    AsyncVLA's Edge_adapter.
+#  - external/AsyncVLA prismatic source vendored at /opt/AsyncVLA/prismatic
+#    with the heavy training-time __init__ chain stubbed so importing
+#    prismatic.models.small_head works without transformers / draccus / peft.
+#  - external/MBRA on PYTHONPATH (vint_train.models.vint.self_attention).
+#
+# Used by docker/run.sh `run {asyncvla,omnivla} --sim --host HOST[:PORT]`.
+# At runtime mount the repo at /workspace; the user-side raspicat-vla
+# packages are built on first launch by the entry script.
 FROM osrf/ros:humble-desktop-full
 
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 SHELL ["/bin/bash", "-c"]
 
-ARG DEBIAN_FRONTEND=noninteractive
-ARG WORKSPACE=/workspace
-
-WORKDIR ${WORKSPACE}
-
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
+# --------------------------------------------------------------- system deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
         bash-completion \
         curl \
         git \
+        python3-pip \
+        python3-pytest \
+        python3-numpy \
+        python3-opencv \
+        python3-pil \
+        python3-typing-extensions \
         python3-colcon-common-extensions \
         python3-rosdep \
+        ros-humble-cv-bridge \
+        ros-humble-diagnostic-msgs \
+        ros-humble-gazebo-ros-pkgs \
+        sudo \
         vim \
-        wget
+        wget \
+    && rm -rf /var/lib/apt/lists/*
 
-COPY . ${WORKSPACE}
+# --------------------------------------------------------------- python deps
+# CPU-only torch (sim runs on a workstation/laptop, not the GPU box).
+RUN pip3 install --no-cache-dir \
+        --index-url https://download.pytorch.org/whl/cpu \
+        'torch==2.2.0' 'torchvision==0.17.0' \
+    && pip3 install --no-cache-dir \
+        'numpy<2' \
+        'efficientnet_pytorch>=0.7.1' \
+        'einops' \
+        'opencv-python-headless' \
+        'grpcio>=1.50' \
+        'grpcio-tools>=1.50' \
+        'protobuf>=4.21'
 
-RUN source /opt/ros/humble/setup.bash && \
-    rosdep update && \
-    rosdep install -r -y --from-paths src --ignore-src --rosdistro humble && \
-    ./src/raspicat_sim/raspicat_gazebo/scripts/download_gazebo_models.sh && \
-    colcon build --symlink-install && \
-    apt-get autoremove -y -qq && \
-    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+# ---------------------------------------------- rt-net raspicat sim workspace
+# Build the rt-net packages once at image build time so Gazebo + raspicat sim
+# is ready out-of-the-box. Submodules live under external/ in the repo.
+COPY external/raspicat_ros            /opt/sim_ws/src/raspicat_ros
+COPY external/raspicat_description    /opt/sim_ws/src/raspicat_description
+COPY external/raspicat_sim            /opt/sim_ws/src/raspicat_sim
+COPY external/raspicat_slam_navigation /opt/sim_ws/src/raspicat_slam_navigation
 
-RUN echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc && \
-    echo "source ${WORKSPACE}/install/setup.bash" >> ~/.bashrc
+# Pre-fetch Gazebo models bundled with raspicat_sim so they're cached in the
+# image and offline runs work.
+RUN if [ -f /opt/sim_ws/src/raspicat_sim/raspicat_gazebo/scripts/download_gazebo_models.sh ]; then \
+        bash /opt/sim_ws/src/raspicat_sim/raspicat_gazebo/scripts/download_gazebo_models.sh \
+            || echo "warning: gazebo model download failed; sim worlds may be incomplete"; \
+    fi
 
-WORKDIR ${WORKSPACE}
+RUN apt-get update \
+    && rosdep update \
+    && rosdep install -r -y --from-paths /opt/sim_ws/src --ignore-src --rosdistro humble \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN cd /opt/sim_ws \
+    && source /opt/ros/humble/setup.bash \
+    && colcon build --symlink-install --merge-install \
+    && chmod -R a+rX /opt/sim_ws
+
+# ---------------------------------------------- AsyncVLA edge inference deps
+# Vendor only the prismatic source (training deps NOT installed). Stub the
+# heavy __init__ files so `from prismatic.models.small_head import Edge_adapter`
+# succeeds without pulling transformers / draccus / peft / etc.
+COPY external/AsyncVLA/prismatic      /opt/AsyncVLA/prismatic
+RUN : > /opt/AsyncVLA/prismatic/__init__.py \
+    && : > /opt/AsyncVLA/prismatic/models/__init__.py \
+    && : > /opt/AsyncVLA/prismatic/conf/__init__.py \
+    && chmod -R a+rX /opt/AsyncVLA
+
+COPY external/MBRA                    /opt/MBRA
+RUN chmod -R a+rX /opt/MBRA
+
+ENV PYTHONPATH=/opt/AsyncVLA:/opt/MBRA/train
+
+# ---------------------------------------------- shell entry
+RUN echo "source /opt/ros/humble/setup.bash" >> /etc/bash.bashrc \
+    && echo "source /opt/sim_ws/install/setup.bash" >> /etc/bash.bashrc \
+    && echo '[[ -f /workspace/install/setup.bash ]] && source /workspace/install/setup.bash' >> /etc/bash.bashrc
+
+WORKDIR /workspace
 CMD ["/bin/bash"]

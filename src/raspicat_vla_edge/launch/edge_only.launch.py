@@ -3,6 +3,7 @@
 Optional launch args (override edge_params.yaml):
   remote_address  - gRPC server address (default: from yaml, typically localhost:50051)
   adapter_kind    - stub|asyncvla|omnivla
+  image_topic     - camera image topic (default: /camera/image_raw; raspicat_sim uses /camera/color/image_raw)
   with_follower   - true|false (also bring up path_follower_node)
   asyncvla_weights_path / asyncvla_resume_step / asyncvla_device
 
@@ -29,6 +30,7 @@ from lifecycle_msgs.msg import Transition
 def generate_launch_description():
     remote_address = LaunchConfiguration('remote_address')
     adapter_kind = LaunchConfiguration('adapter_kind')
+    image_topic = LaunchConfiguration('image_topic')
     with_follower = LaunchConfiguration('with_follower')
     asyncvla_weights_path = LaunchConfiguration('asyncvla_weights_path')
     asyncvla_resume_step = LaunchConfiguration('asyncvla_resume_step')
@@ -44,6 +46,7 @@ def generate_launch_description():
     overrides = {
         'remote_address': remote_address,
         'adapter_kind': adapter_kind,
+        'image_topic': image_topic,
         'asyncvla_weights_path': asyncvla_weights_path,
         'asyncvla_resume_step': asyncvla_resume_step,
         'asyncvla_device': asyncvla_device,
@@ -90,6 +93,7 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('remote_address', default_value='localhost:50051'),
         DeclareLaunchArgument('adapter_kind', default_value='stub'),
+        DeclareLaunchArgument('image_topic', default_value='/camera/image_raw'),
         DeclareLaunchArgument('with_follower', default_value='false'),
         DeclareLaunchArgument('asyncvla_weights_path', default_value='/workspace/AsyncVLA_release'),
         DeclareLaunchArgument('asyncvla_resume_step', default_value='750000'),

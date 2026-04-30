@@ -168,23 +168,20 @@ run_remote() {
         "
 }
 
-# --real and --sim share the edge launch; only the image differs.
-run_edge() {
-    local model=$1 host=$2 port=$3 image=$4 mode=$5
-    log "${model} edge (${mode}, image=${image}); cloud=${host}:${port}"
-    docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
-        --network host \
-        -v "$REPO_ROOT:/workspace" \
-        -v "$HF_CACHE_DIR:/tmp/.cache/huggingface" \
-        "$image" bash -lc "
-            source /opt/ros/humble/setup.bash
-            cd /workspace
-            [[ -f install/setup.bash ]] && source install/setup.bash
-            exec ros2 launch raspicat_vla_bringup edge_only.launch.py \
-                remote_address:=${host}:${port} \
-                adapter_kind:=${model} \
-                with_follower:=true
-        "
+# Build raspicat-vla packages inside the container (idempotent — colcon
+# detects already-built packages). Required because the rt-net packages are
+# pre-built in /opt/sim_ws but the user-side raspicat_vla_* are mounted.
+_workspace_build_cmd() {
+    cat <<'BUILD'
+if [ ! -f install/setup.bash ] || [ -n "$RASPICAT_VLA_REBUILD" ]; then
+    echo "==> colcon build raspicat_vla_*" >&2
+    colcon build --symlink-install \
+        --packages-select raspicat_vla_msgs raspicat_vla_proto \
+                          raspicat_vla_remote raspicat_vla_edge \
+                          raspicat_vla_bringup
+fi
+source install/setup.bash
+BUILD
 }
 
 run_real() {
@@ -199,19 +196,67 @@ run_real() {
         warn "doesn't ship those by default; build a Dockerfile.real that includes them"
         warn "(or extend Dockerfile.test) before running on a real raspicat."
     fi
-    run_edge "$model" "$host" "$port" "$image" real
+    log "${model} edge (real, image=${image}); cloud=${host}:${port}"
+    docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
+        --network host \
+        -v "$REPO_ROOT:/workspace" \
+        -v "$HF_CACHE_DIR:/tmp/.cache/huggingface" \
+        "$image" bash -lc "
+            source /opt/ros/humble/setup.bash
+            cd /workspace
+            $(_workspace_build_cmd)
+            exec ros2 launch raspicat_vla_edge edge_only.launch.py \
+                remote_address:=${host}:${port} \
+                adapter_kind:=${model} \
+                with_follower:=true
+        "
 }
 
 run_sim() {
     local model=$1 host=$2 port=$3
     local image="${IMAGES[sim]}"
     if ! docker image inspect "$image" >/dev/null 2>&1; then
-        warn "image ${image} not found; falling back to ${IMAGES[test]}. Plan 3 will"
-        warn "ship a Dockerfile.sim with Gazebo + adapter deps; this fallback runs the"
-        warn "edge node only (no Gazebo)."
+        warn "image ${image} not built; falling back to ${IMAGES[test]} (no Gazebo)."
+        warn "run \`run.sh build sim\` for the full sim image with Gazebo + raspicat_sim."
         image="${IMAGES[test]}"
+        # Fallback: edge_only without Gazebo.
+        log "${model} edge (sim-fallback, image=${image}); cloud=${host}:${port}"
+        docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
+            --network host \
+            -v "$REPO_ROOT:/workspace" \
+            -v "$HF_CACHE_DIR:/tmp/.cache/huggingface" \
+            "$image" bash -lc "
+                source /opt/ros/humble/setup.bash
+                cd /workspace
+                $(_workspace_build_cmd)
+                exec ros2 launch raspicat_vla_edge edge_only.launch.py \
+                    remote_address:=${host}:${port} \
+                    adapter_kind:=${model} \
+                    with_follower:=true
+            "
+        return
     fi
-    run_edge "$model" "$host" "$port" "$image" sim
+
+    # Full sim image with Gazebo. Forward DISPLAY so gzclient renders on the host.
+    local display_args=()
+    if [[ -n ${DISPLAY:-} ]]; then
+        display_args+=(-e "DISPLAY=$DISPLAY" -v "/tmp/.X11-unix:/tmp/.X11-unix:ro")
+    fi
+    log "${model} sim (image=${image}); cloud=${host}:${port}"
+    docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
+        --network host \
+        "${display_args[@]}" \
+        -v "$REPO_ROOT:/workspace" \
+        -v "$HF_CACHE_DIR:/tmp/.cache/huggingface" \
+        "$image" bash -lc "
+            source /opt/ros/humble/setup.bash
+            source /opt/sim_ws/install/setup.bash
+            cd /workspace
+            $(_workspace_build_cmd)
+            exec ros2 launch raspicat_vla_bringup mvp_sim.launch.py \
+                remote_address:=${host}:${port} \
+                adapter_kind:=${model}
+        "
 }
 
 cmd_run() {
