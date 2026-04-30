@@ -1,0 +1,66 @@
+# Dockerfile for AsyncVLA cloud-side gRPC server (Plan 2A).
+#
+# Hosts the OpenVLA-OFT backbone (NHirose/AsyncVLA_release) on a CUDA GPU.
+# AsyncVLA's `prismatic.models.small_head` imports from `vint_train`, which
+# lives in NHirose/Learning-to-Drive-Anywhere-with-MBRA. Add it as a submodule
+# before building this image:
+#   git submodule add https://github.com/NHirose/Learning-to-Drive-Anywhere-with-MBRA external/MBRA
+#   git submodule update --init --recursive
+FROM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+SHELL ["/bin/bash", "-c"]
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3.10 python3.10-venv python3-pip \
+        git curl ca-certificates build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN ln -sf /usr/bin/python3.10 /usr/bin/python3 \
+    && ln -sf /usr/bin/python3 /usr/bin/python
+
+# Pin torch to the exact bf16 CUDA 12.1 wheels AsyncVLA was trained against.
+RUN pip3 install --no-cache-dir \
+        'torch==2.2.0+cu121' 'torchvision==0.17.0+cu121' 'torchaudio==2.2.0+cu121' \
+        --extra-index-url https://download.pytorch.org/whl/cu121
+
+# Inference deps. transformers MUST be the openvla-oft fork (bidirectional attn).
+# `efficientnet_pytorch` is required by Edge_adapter (loaded on the cloud too,
+# because importing prismatic.models.small_head pulls Proj_Actiontokens from
+# the same module which imports Edge_adapter at module load time).
+RUN pip3 install --no-cache-dir \
+        'numpy==1.26.4' \
+        'huggingface_hub>=0.23' \
+        'accelerate>=0.30' \
+        'safetensors' \
+        'sentencepiece==0.1.99' \
+        'tokenizers==0.19.1' \
+        'timm==0.9.10' \
+        'peft==0.11.1' \
+        'einops' \
+        'efficientnet_pytorch>=0.7.1' \
+        'PyYAML' \
+        'Pillow' \
+        'opencv-python-headless' \
+        'utm' \
+        'grpcio>=1.50' \
+        'grpcio-tools>=1.50' \
+        'protobuf>=4.21' \
+        'typing_extensions>=4.5' \
+    && pip3 install --no-cache-dir \
+        'transformers @ git+https://github.com/moojink/transformers-openvla-oft.git'
+
+# OPTIONAL: flash-attn (skip; SDPA fallback works at inference).
+
+# Vendor AsyncVLA's `prismatic` package WITHOUT pulling its training-time deps.
+COPY external/AsyncVLA /opt/AsyncVLA
+RUN pip3 install --no-cache-dir --no-deps -e /opt/AsyncVLA
+
+# Vendor MBRA's `vint_train` package on PYTHONPATH so prismatic.models.small_head
+# can import MultiLayerDecoder_trans at module load time.
+COPY external/MBRA /opt/MBRA
+ENV PYTHONPATH=/opt/MBRA/train:$PYTHONPATH
+
+WORKDIR /workspace
