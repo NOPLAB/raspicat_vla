@@ -1,24 +1,40 @@
+# Dockerfile.test — minimal CI / pytest container for raspicat-vla.
+#
+# Bundles ROS2 humble-ros-base + grpcio + protobuf + CPU torch so the full
+# pytest suite (Plan 1 + Plan 2A/2B unit + smoke tests) runs in one shot.
+# No rt-net packages, no AsyncVLA/OmniVLA prismatic, no Gazebo. Used by
+# `docker/run.sh test` and as the fallback edge image.
 FROM ros:humble-ros-base
 
 ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 SHELL ["/bin/bash", "-c"]
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3-pip \
-    python3-pytest \
-    python3-numpy \
-    python3-opencv \
-    python3-pil \
-    python3-typing-extensions \
-    python3-colcon-common-extensions \
-    ros-humble-cv-bridge \
-    ros-humble-diagnostic-msgs \
+        python3-pip \
+        python3-pytest \
+        python3-numpy \
+        python3-opencv \
+        python3-pil \
+        python3-typing-extensions \
+        python3-colcon-common-extensions \
+        ros-humble-cv-bridge \
+        ros-humble-diagnostic-msgs \
     && rm -rf /var/lib/apt/lists/*
 
+# gRPC + protobuf for the proto stubs.
 RUN pip3 install --no-cache-dir --no-deps \
-    'typing_extensions>=4.5' \
-    'grpcio>=1.50' \
-    'grpcio-tools>=1.50' \
-    'protobuf>=4.21'
+        'typing_extensions>=4.5' \
+        'grpcio>=1.50' \
+        'grpcio-tools>=1.50' \
+        'protobuf>=4.21'
+
+# Torch CPU for tests that exercise the checkpoint loader, omnivla data
+# transform, and edge adapters. Pinned to match Dockerfile.real /
+# Dockerfile.sim so behavior is identical across containers.
+RUN pip3 install --no-cache-dir \
+        --index-url https://download.pytorch.org/whl/cpu \
+        'torch==2.2.0' 'torchvision==0.17.0'
 
 WORKDIR /workspace

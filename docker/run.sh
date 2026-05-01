@@ -59,6 +59,11 @@ Commands:
                                     Uses Dockerfile.real.
       --sim  --host HOST[:PORT]     Edge + Gazebo simulation, cloud at
                                     HOST:PORT. Uses Dockerfile.sim. Plan 3 wip.
+  test [PYTEST_ARGS...]   Run pytest in raspicat-vla-test (CPU). Auto-builds
+                          the image if missing. Pass extra args to pytest:
+                            run.sh test                        # full suite
+                            run.sh test -k checkpoint          # filter
+                            run.sh test src/raspicat_vla_edge/test  # subset
   help, -h, --help        Show this help
 
 Examples:
@@ -71,6 +76,8 @@ Examples:
   run.sh run asyncvla --real --host 192.168.1.2            # default port
   run.sh run asyncvla --real --host 192.168.1.2:8080
   run.sh run omnivla  --sim  --host 192.168.1.2:9000
+  run.sh test                                              # full pytest suite
+  run.sh test -k omnivla                                   # filter by name
 
 Environment overrides:
   GRPC_PORT     gRPC port (default 50051)
@@ -333,9 +340,62 @@ cmd_run() {
     esac
 }
 
+cmd_test() {
+    local image="${IMAGES[test]}"
+    if ! docker image inspect "$image" >/dev/null 2>&1; then
+        warn "image ${image} not built; building first..."
+        build_one test || return 1
+    fi
+
+    # Build the default test set: explicit files (not directories) because
+    # ROS2's launch_testing pytest plugin claims directories and silently
+    # drops every test in them ("collected 0 items / 1 skipped"). Smoke tests
+    # guarded by ASYNCVLA_E2E / OMNIVLA_E2E env vars are included but skip
+    # cleanly without GPU.
+    local default_paths
+    mapfile -t default_paths < <(
+        find "$REPO_ROOT/src" -path '*/test/test_*.py' -not -path '*/__pycache__/*' \
+            | sort \
+            | sed "s|^$REPO_ROOT/||"
+    )
+
+    local args
+    if [[ $# -eq 0 ]]; then
+        args=(-v "${default_paths[@]}")
+    else
+        # Decide whether the user supplied any test path. Pure-flag invocations
+        # (`run.sh test -k name`, `--lf`, `-x`) need default_paths prepended
+        # so pytest doesn't fall back to cwd discovery (which would walk
+        # external/ and crash on missing transitive deps).
+        local has_path=false a
+        for a in "$@"; do
+            [[ -e $a || -e $REPO_ROOT/$a ]] && { has_path=true; break; }
+        done
+        if $has_path; then
+            args=("$@")
+        else
+            args=("${default_paths[@]}" "$@")
+        fi
+    fi
+    local args_str
+    printf -v args_str '%q ' "${args[@]}"
+
+    log "pytest in ${image} (${#args[@]} args)"
+    docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
+        -v "$REPO_ROOT:/workspace" \
+        "$image" bash -lc "
+            set -e
+            source /opt/ros/humble/setup.bash
+            cd /workspace
+            $(_workspace_build_cmd)
+            exec python3 -m pytest ${args_str}
+        "
+}
+
 case ${1:-} in
     -h|--help|help|'') usage ;;
     build) shift; cmd_build "$@" ;;
     run)   shift; cmd_run "$@" ;;
+    test)  shift; cmd_test "$@" ;;
     *) err "unknown command: '$1'"; usage; exit 1 ;;
 esac

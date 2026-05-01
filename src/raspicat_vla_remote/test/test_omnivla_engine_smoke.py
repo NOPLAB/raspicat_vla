@@ -7,8 +7,14 @@ import os
 
 import pytest
 
-if os.environ.get('OMNIVLA_E2E') != '1':
-    pytest.skip('set OMNIVLA_E2E=1 to run', allow_module_level=True)
+# Skip the whole module unless OMNIVLA_E2E=1. Use a pytestmark so that pytest's
+# collection finishes cleanly (a top-level pytest.skip(allow_module_level=True)
+# trips a known pytest 6.2 bug that drops every other test in the same
+# session: https://github.com/pytest-dev/pytest/issues/4946).
+pytestmark = pytest.mark.skipif(
+    os.environ.get('OMNIVLA_E2E') != '1',
+    reason='set OMNIVLA_E2E=1 to run',
+)
 
 
 def test_omnivla_backend_returns_action_chunk_shape():

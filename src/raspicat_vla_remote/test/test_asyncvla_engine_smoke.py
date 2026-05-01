@@ -9,8 +9,14 @@ import os
 
 import pytest
 
-if os.environ.get('ASYNCVLA_E2E') != '1':
-    pytest.skip('set ASYNCVLA_E2E=1 to run', allow_module_level=True)
+# Skip the whole module unless ASYNCVLA_E2E=1. Use a pytestmark so pytest's
+# collection finishes cleanly (a top-level pytest.skip(allow_module_level=True)
+# trips a known pytest 6.2 bug that drops every other test in the same
+# session: https://github.com/pytest-dev/pytest/issues/4946).
+pytestmark = pytest.mark.skipif(
+    os.environ.get('ASYNCVLA_E2E') != '1',
+    reason='set ASYNCVLA_E2E=1 to run',
+)
 
 
 def test_asyncvla_backend_returns_projection_shape():
