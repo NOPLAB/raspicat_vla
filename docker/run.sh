@@ -238,14 +238,31 @@ run_sim() {
     fi
 
     # Full sim image with Gazebo. Forward DISPLAY so gzclient renders on the host.
+    # Synthesize a /etc/passwd entry for the host UID inside the container so
+    # gzclient stops spamming "Error getting username: no matching password record".
+    # We can't bind-mount the host's /etc/passwd because Gazebo would then try
+    # HOME=/home/<user> which doesn't exist in the image; the synthesized entry
+    # points HOME at /tmp instead.
     local display_args=()
     if [[ -n ${DISPLAY:-} ]]; then
         display_args+=(-e "DISPLAY=$DISPLAY" -v "/tmp/.X11-unix:/tmp/.X11-unix:ro")
     fi
+    local uid gid passwd_dir
+    uid=$(id -u); gid=$(id -g)
+    passwd_dir=$(mktemp -d)
+    cat /etc/passwd > "$passwd_dir/passwd"
+    grep -q "^[^:]*:[^:]*:${uid}:" "$passwd_dir/passwd" || \
+        echo "raspicat:x:${uid}:${gid}:raspicat:/tmp:/bin/bash" >> "$passwd_dir/passwd"
+    cat /etc/group > "$passwd_dir/group"
+    grep -q "^[^:]*:[^:]*:${gid}:" "$passwd_dir/group" || \
+        echo "raspicat:x:${gid}:" >> "$passwd_dir/group"
+
     log "${model} sim (image=${image}); cloud=${host}:${port}"
-    docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
+    docker run --rm --user "${uid}:${gid}" -e HOME=/tmp \
         --network host \
         "${display_args[@]}" \
+        -v "$passwd_dir/passwd:/etc/passwd:ro" \
+        -v "$passwd_dir/group:/etc/group:ro" \
         -v "$REPO_ROOT:/workspace" \
         -v "$HF_CACHE_DIR:/tmp/.cache/huggingface" \
         "$image" bash -lc "
