@@ -187,22 +187,29 @@ BUILD
 run_real() {
     local model=$1 host=$2 port=$3
     local image="${IMAGES[real]}"
+    local has_real_image=true
     if ! docker image inspect "$image" >/dev/null 2>&1; then
-        warn "image ${image} not found; falling back to ${IMAGES[test]}. Run \`run.sh build real\` for the dedicated image."
+        has_real_image=false
+        warn "image ${image} not built; falling back to ${IMAGES[test]} (no rt-net packages)."
+        warn "run \`run.sh build real\` for the full image with raspicat_ros + Edge_adapter deps."
         image="${IMAGES[test]}"
+        if [[ $model == asyncvla ]]; then
+            warn "AsyncVLA edge needs torch + MBRA on PYTHONPATH; the test image lacks them."
+        fi
     fi
-    if [[ $model == asyncvla ]]; then
-        warn "AsyncVLA edge needs torch + MBRA on PYTHONPATH. The base test image"
-        warn "doesn't ship those by default; build a Dockerfile.real that includes them"
-        warn "(or extend Dockerfile.test) before running on a real raspicat."
-    fi
+
     log "${model} edge (real, image=${image}); cloud=${host}:${port}"
+    local source_real_ws=""
+    if $has_real_image; then
+        source_real_ws="source /opt/real_ws/install/setup.bash"
+    fi
     docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
         --network host \
         -v "$REPO_ROOT:/workspace" \
         -v "$HF_CACHE_DIR:/tmp/.cache/huggingface" \
         "$image" bash -lc "
             source /opt/ros/humble/setup.bash
+            ${source_real_ws}
             cd /workspace
             $(_workspace_build_cmd)
             exec ros2 launch raspicat_vla_edge edge_only.launch.py \
