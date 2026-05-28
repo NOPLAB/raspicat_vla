@@ -60,3 +60,21 @@ source install/setup.bash
 
 To bump the pinned rt-net versions, edit `raspicat.repos` and re-run
 `vcs import src < raspicat.repos`.
+
+## Running
+
+`docker/run.sh` is the primary entry point for build/run/test against the
+five images (`asyncvla`, `omnivla`, `real`, `sim`, `test`). The full operator
+guide lives at [`docs/USAGE.md`](docs/USAGE.md); a quick orientation:
+
+* `docker/run.sh build TARGET` — build one of the images.
+* `docker/run.sh run MODEL --remote {--cpu|--gpu} [--host BIND[:PORT]]` —
+  host the cloud-side gRPC server.
+* `docker/run.sh run MODEL --real --host HOST[:PORT]` — run the on-robot
+  edge stack pointed at a remote.
+* `docker/run.sh run MODEL --sim  --host HOST[:PORT]` — Gazebo + edge.
+* `docker/run.sh test [PYTEST_ARGS...]` — pytest in the CPU test image.
+
+Both `asyncvla` and `omnivla` backends work on CPU but are slow; GPU is
+strongly recommended for anything beyond wiring smoke tests. See
+[`docs/USAGE.md`](docs/USAGE.md) §5.5 for CPU-specific caveats.
