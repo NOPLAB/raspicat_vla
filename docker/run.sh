@@ -154,6 +154,10 @@ build_one() {
     [[ -n $dfile_rel && -n $image ]] || { err "unknown build target: $target"; return 1; }
     local dfile="${REPO_ROOT}/${dfile_rel}"
     [[ -f $dfile ]] || { err "Dockerfile not found: $dfile"; return 1; }
+    if [[ $target == sim ]] && is_jetson; then
+        warn "'sim' uses osrf/ros:humble-desktop-full, which has no arm64 image;"
+        warn "this build will fail on Jetson with 'exec format error'. Use a x86 host for sim."
+    fi
     log "building ${image} from ${dfile_rel}"
     docker build -f "$dfile" -t "$image" "$REPO_ROOT"
 }
@@ -162,13 +166,18 @@ cmd_build() {
     local target=${1:-}
     case $target in
         --all)
-            local rc=0 remote_targets=(asyncvla omnivla)
-            # On Jetson the x86 remote images can't build (no aarch64 cu121
-            # torch wheel); build their ARM variants instead.
+            local rc=0 all_targets
             if is_jetson; then
-                remote_targets=(asyncvla-jetson omnivla-jetson)
+                # On Jetson: build the ARM remote variants (the x86 ones have no
+                # aarch64 cu121 torch wheel). Skip sim — its base image
+                # (osrf/ros:humble-desktop-full) has no arm64 build, and a Gazebo
+                # GUI workstation isn't a Jetson use case.
+                all_targets=(asyncvla-jetson omnivla-jetson test real)
+                warn "Jetson: skipping 'sim' from --all (osrf desktop-full has no arm64 image)."
+            else
+                all_targets=(asyncvla omnivla test real sim)
             fi
-            for t in "${remote_targets[@]}" test real sim; do
+            for t in "${all_targets[@]}"; do
                 build_one "$t" || rc=1
             done
             return $rc
