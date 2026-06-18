@@ -19,8 +19,11 @@ ENV PYTHONUNBUFFERED=1
 SHELL ["/bin/bash", "-c"]
 
 # l4t-jetpack r36 is Ubuntu 22.04 with system Python 3.10 (matches the x86 image).
+# libopenblas: the Jetson torch wheels link against libopenblas.so.0, which the
+# l4t-jetpack base does not ship — without it `import torch` fails at C-ext load.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 python3-pip python3-dev python3-venv \
+        libopenblas-dev \
         git curl ca-certificates build-essential \
     && rm -rf /var/lib/apt/lists/*
 
