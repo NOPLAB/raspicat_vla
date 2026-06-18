@@ -15,11 +15,25 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GRPC_PORT="${GRPC_PORT:-50051}"
 HF_CACHE_DIR="${HF_CACHE_DIR:-${HOME}/.cache/huggingface}"
+HOST_ARCH="$(uname -m)"
+
+# Jetson (L4T/aarch64) needs the ARM remote images + `--runtime nvidia` for GPU,
+# not x86's `--gpus all`. Auto-detected from the host arch; force with
+# RASPICAT_VLA_JETSON=1 (or =0 to disable, e.g. cross-build on an aarch64 host).
+is_jetson() {
+    case "${RASPICAT_VLA_JETSON:-}" in
+        1) return 0 ;;
+        0) return 1 ;;
+    esac
+    [[ $HOST_ARCH == aarch64 || $HOST_ARCH == arm64 ]]
+}
 
 # Image / Dockerfile / model knob registries. Bash 4 associative arrays.
 declare -A IMAGES=(
     [asyncvla]="raspicat-vla-asyncvla"
     [omnivla]="raspicat-vla-omnivla"
+    [asyncvla-jetson]="raspicat-vla-asyncvla-jetson"
+    [omnivla-jetson]="raspicat-vla-omnivla-jetson"
     [test]="raspicat-vla-test"
     [real]="raspicat-vla-real"
     [sim]="raspicat-vla-sim"
@@ -27,6 +41,8 @@ declare -A IMAGES=(
 declare -A DOCKERFILES=(
     [asyncvla]="docker/Dockerfile.asyncvla"
     [omnivla]="docker/Dockerfile.omnivla"
+    [asyncvla-jetson]="docker/Dockerfile.asyncvla.jetson"
+    [omnivla-jetson]="docker/Dockerfile.omnivla.jetson"
     [test]="docker/Dockerfile.test"
     [real]="docker/Dockerfile.real"
     [sim]="docker/Dockerfile.sim"
@@ -47,6 +63,7 @@ Usage: run.sh COMMAND [ARGS]
 Commands:
   build TARGET            Build a Docker image
     TARGET = asyncvla | omnivla | test | real | sim | --all
+             asyncvla-jetson | omnivla-jetson   (ARM64 / Jetson AGX Orin)
   run MODEL MODE [OPTS]   Run a configuration
     MODEL = asyncvla | omnivla | omnivla_edge
     MODE:
@@ -87,9 +104,22 @@ Examples:
   run.sh test                                              # full pytest suite
   run.sh test -k omnivla                                   # filter by name
 
+Jetson AGX Orin (ARM64):
+  On an aarch64 host this script auto-selects the *-jetson remote images and
+  swaps `--gpus all` for `--runtime nvidia`. Build + run on the device:
+    run.sh build omnivla-jetson
+    run.sh run omnivla --remote --gpu                # uses raspicat-vla-omnivla-jetson
+  Match the image to your JetPack via Docker build args (see the Dockerfile
+  header), e.g.:
+    docker build -f docker/Dockerfile.omnivla.jetson \
+      --build-arg L4T_BASE=nvcr.io/nvidia/l4t-jetpack:r36.4.0 \
+      --build-arg TORCH_VERSION=2.8.0 -t raspicat-vla-omnivla-jetson .
+  Force/disable Jetson mode with RASPICAT_VLA_JETSON=1 / =0.
+
 Environment overrides:
-  GRPC_PORT     gRPC port (default 50051)
-  HF_CACHE_DIR  HuggingFace cache mount (default $HOME/.cache/huggingface)
+  GRPC_PORT            gRPC port (default 50051)
+  HF_CACHE_DIR         HuggingFace cache mount (default $HOME/.cache/huggingface)
+  RASPICAT_VLA_JETSON  1 = force Jetson images + nvidia runtime; 0 = force x86
 EOF
 }
 
@@ -138,7 +168,7 @@ cmd_build() {
             done
             return $rc
             ;;
-        asyncvla|omnivla|test|real|sim)
+        asyncvla|omnivla|asyncvla-jetson|omnivla-jetson|test|real|sim)
             build_one "$target"
             ;;
         '')
@@ -159,9 +189,20 @@ run_remote() {
     local image="${IMAGES[$model]}"
     local resume_step="${RESUME_STEP[$model]}"
     local weights="${WEIGHTS_DIR[$model]}"
+    # On Jetson the backend name (--backend / weights / resume-step) is unchanged;
+    # only the container image (ARM build) and the GPU flag differ.
+    if is_jetson; then
+        image="${IMAGES[${model}-jetson]}"
+    fi
     local gpu_flag="" device_arg="cpu"
     if [[ $device == gpu ]]; then
-        gpu_flag="--gpus all"
+        # x86 uses the nvidia-container-toolkit's `--gpus all`; Jetson/L4T exposes
+        # the iGPU through the nvidia container runtime instead.
+        if is_jetson; then
+            gpu_flag="--runtime nvidia"
+        else
+            gpu_flag="--gpus all"
+        fi
         device_arg="cuda:0"
     fi
 
