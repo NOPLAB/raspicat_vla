@@ -40,6 +40,7 @@ def _make_obs(frame_id: int) -> raspicat_vla_pb2.Observation:
 
 
 def test_client_round_trips_via_dummy_server(server):
+    """A paced caller (one obs per reply) gets every frame back, in order."""
     received = []
     cond = threading.Condition()
 
@@ -53,9 +54,37 @@ def test_client_round_trips_via_dummy_server(server):
     try:
         for i in range(5):
             client.send(_make_obs(i))
+            with cond:
+                cond.wait_for(lambda i=i: len(received) >= i + 1, timeout=5.0)
+        assert [r.frame_id for r in received] == [0, 1, 2, 3, 4]
+    finally:
+        client.stop()
+
+
+def test_client_coalesces_when_caller_outpaces_remote(server):
+    """When sends pile up faster than the remote drains, intermediate
+    observations are dropped (latest_only + max_inflight) but the most recent
+    frame is always eventually delivered — so the returned frame_id can't lag
+    the send counter without bound (the bug that stalled the sim)."""
+    received = []
+    cond = threading.Condition()
+
+    def on_emb(emb):
         with cond:
-            cond.wait_for(lambda: len(received) >= 5, timeout=5.0)
-        assert len(received) == 5
-        assert {r.frame_id for r in received} == {0, 1, 2, 3, 4}
+            received.append(emb)
+            cond.notify_all()
+
+    client = VLAClient(address=f'localhost:{server}', on_embedding=on_emb)
+    client.start()
+    try:
+        last = 199
+        for i in range(last + 1):
+            client.send(_make_obs(i))
+        with cond:
+            cond.wait_for(lambda: received and received[-1].frame_id == last, timeout=5.0)
+        ids = [r.frame_id for r in received]
+        assert ids[-1] == last                 # latest always wins
+        assert len(ids) < last + 1             # intermediates coalesced away
+        assert ids == sorted(ids)              # delivered in order, never backwards
     finally:
         client.stop()
