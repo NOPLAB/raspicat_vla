@@ -55,12 +55,26 @@ RUN pip3 install --no-cache-dir \
 # OPTIONAL: flash-attn (skip; SDPA fallback works at inference).
 
 # Vendor AsyncVLA's `prismatic` package WITHOUT pulling its training-time deps.
+# Put it on PYTHONPATH rather than `pip install -e`: editable installs need
+# PEP 660 (setuptools>=64) which the build-isolation env here lacks, and we only
+# want `prismatic.*` submodules to import. Mirrors Dockerfile.real.
 COPY external/AsyncVLA /opt/AsyncVLA
-RUN pip3 install --no-cache-dir --no-deps -e /opt/AsyncVLA
+# Stub every heavy package __init__.py so the cloud backend's leaf imports
+# (prismatic.extern.hf.*, prismatic.models.small_head, prismatic.training.
+# train_utils, prismatic.models.backbones.llm.prompting, prismatic.vla.*)
+# resolve without executing the draccus/dataset-laden import chains. Same
+# treatment as Dockerfile.real, plus training/ and backbones/llm/ which the
+# cloud backend imports but the edge does not.
+RUN : > /opt/AsyncVLA/prismatic/__init__.py \
+    && : > /opt/AsyncVLA/prismatic/models/__init__.py \
+    && : > /opt/AsyncVLA/prismatic/conf/__init__.py \
+    && : > /opt/AsyncVLA/prismatic/vla/__init__.py \
+    && : > /opt/AsyncVLA/prismatic/training/__init__.py \
+    && : > /opt/AsyncVLA/prismatic/models/backbones/llm/__init__.py
 
 # Vendor MBRA's `vint_train` package on PYTHONPATH so prismatic.models.small_head
 # can import MultiLayerDecoder_trans at module load time.
 COPY external/MBRA /opt/MBRA
-ENV PYTHONPATH=/opt/MBRA/train:$PYTHONPATH
+ENV PYTHONPATH=/opt/AsyncVLA:/opt/MBRA/train:$PYTHONPATH
 
 WORKDIR /workspace
