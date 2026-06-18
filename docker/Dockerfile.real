@@ -58,23 +58,29 @@ RUN pip3 install --no-cache-dir \
         'grpcio-tools>=1.50' \
         'protobuf>=4.21'
 
-# --------------------------------------------- OmniVLA-edge (Plan 2B Path 2) deps
-# The omnivla_edge_local adapter runs the full OmniVLA-edge policy + CLIP ViT-B/32
-# on the edge. CLIP is installed --no-deps so it can't downgrade the pinned torch;
-# ftfy/regex/tqdm are CLIP's runtime deps. NOTE: the vendored OmniVLA_edge forward
-# pass is GPU-only (uses tensor.get_device()), so Path 2 requires a CUDA-capable
-# edge (e.g. Jetson). On such hardware, replace the CPU torch wheel above with the
-# matching CUDA build. Path 1 (adapter_kind=omnivla) and asyncvla are unaffected.
-RUN pip3 install --no-cache-dir 'ftfy' 'regex' 'tqdm' \
-    && pip3 install --no-cache-dir --no-deps 'git+https://github.com/openai/CLIP.git'
-
 # Pin setuptools to the ROS2 Humble default. colcon's `--symlink-install` runs
 # `setup.py develop --editable` for ament_python packages (raspicat_vla_proto/
 # remote/edge), which setuptools>=80 has removed; and setuptools>=66 paired with
 # Ubuntu's apt packaging 21.3 breaks ament_cmake_python egg builds via
 # `canonicalize_version(strip_trailing_zero=...)`. 59.6.0 avoids both. Keep this
-# AFTER the torch/grpcio installs so it wins as the final setuptools.
-RUN pip3 install --no-cache-dir 'setuptools==59.6.0'
+# AFTER the torch/grpcio installs (wheels, so they don't bump setuptools) but
+# BEFORE the CLIP source build below — otherwise CLIP's legacy setup.py runs
+# against the base image's newer setuptools (the aarch64 ros base ships >=66) and
+# dies with that same canonicalize_version TypeError. Nothing reinstalls
+# setuptools afterwards, so 59.6.0 stays the final version.
+RUN pip3 install --no-cache-dir 'setuptools==59.6.0' wheel
+
+# --------------------------------------------- OmniVLA-edge (Plan 2B Path 2) deps
+# The omnivla_edge_local adapter runs the full OmniVLA-edge policy + CLIP ViT-B/32
+# on the edge. CLIP is installed --no-deps so it can't downgrade the pinned torch;
+# ftfy/regex/tqdm are CLIP's runtime deps. --no-build-isolation makes CLIP build
+# with the setuptools 59.6.0 pinned just above instead of an isolated latest one.
+# NOTE: the vendored OmniVLA_edge forward pass is GPU-only (uses
+# tensor.get_device()), so Path 2 requires a CUDA-capable edge (e.g. Jetson). On
+# such hardware, replace the CPU torch wheel above with the matching CUDA build.
+# Path 1 (adapter_kind=omnivla) and asyncvla are unaffected.
+RUN pip3 install --no-cache-dir 'ftfy' 'regex' 'tqdm' \
+    && pip3 install --no-cache-dir --no-deps --no-build-isolation 'git+https://github.com/openai/CLIP.git'
 
 # --------------------------------------------- rt-net raspicat real workspace
 # Build the rt-net packages once at image build time so the robot launch
