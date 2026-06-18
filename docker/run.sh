@@ -327,6 +327,23 @@ run_sim() {
     if [[ -n ${DISPLAY:-} ]]; then
         display_args+=(-e "DISPLAY=$DISPLAY" -v "/tmp/.X11-unix:/tmp/.X11-unix:ro")
     fi
+
+    # GPU passthrough for OpenGL. Gazebo renders the camera sensor (and gzclient)
+    # via GL; on a software fallback (mesa/llvmpipe) that is so slow that gzserver
+    # misses the spawn_entity service window and the robot never spawns. Hand the
+    # NVIDIA GPU to the container when the nvidia container runtime is present.
+    # NVIDIA_DRIVER_CAPABILITIES must include graphics+display (compute+utility
+    # alone, the `--gpus all` default, give CUDA but no GL) so libGLX_nvidia is
+    # injected. Skip with a warning if the runtime is missing — the run still
+    # comes up on software GL, just slowly.
+    local gpu_args=()
+    if docker info 2>/dev/null | grep -q ' nvidia'; then
+        gpu_args+=(--gpus all -e "NVIDIA_DRIVER_CAPABILITIES=all" -e "NVIDIA_VISIBLE_DEVICES=all")
+    else
+        warn "nvidia container runtime not found; sim falls back to software GL."
+        warn "Gazebo camera rendering will be slow and spawn_entity may time out."
+        warn "Install nvidia-container-toolkit + 'nvidia-ctk runtime configure --runtime=docker'."
+    fi
     local uid gid passwd_dir
     uid=$(id -u); gid=$(id -g)
     passwd_dir=$(mktemp -d)
@@ -337,9 +354,19 @@ run_sim() {
     grep -q "^[^:]*:[^:]*:${gid}:" "$passwd_dir/group" || \
         echo "raspicat:x:${gid}:" >> "$passwd_dir/group"
 
+    # Confine ROS2 DDS discovery to loopback/SHM. Every ROS node here (gzserver,
+    # the edge node, the follower, …) lives in this one container; the only
+    # remote link is the gRPC cloud connection, which is not ROS. With
+    # ROS_LOCALHOST_ONLY=0 and --network host, FastDDS announces on every host
+    # NIC including the LAN, and the resulting multi-participant discovery storm
+    # makes gzserver's gazebo_ros_factory services (/spawn_entity) never get
+    # matched — so spawn_entity times out and the robot never appears. Pinning to
+    # localhost fixes that and isolates us from other ROS nodes on the LAN.
     log "${model} sim (image=${image}); cloud=${host}:${port}"
     docker run --rm --user "${uid}:${gid}" -e HOME=/tmp \
+        -e ROS_LOCALHOST_ONLY=1 \
         --network host \
+        "${gpu_args[@]}" \
         "${display_args[@]}" \
         -v "$passwd_dir/passwd:/etc/passwd:ro" \
         -v "$passwd_dir/group:/etc/group:ro" \

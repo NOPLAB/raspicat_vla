@@ -68,24 +68,27 @@ def generate_launch_description():
     )
 
     # rt-net's spawn_raspicat.launch.py calls spawn_entity.py with its
-    # built-in 30s service-wait timeout. Under WSL2 / CPU contention the
-    # gazebo_ros_factory plugin can take longer than that to register, so
-    # the original spawn dies and the world stays empty. Schedule a
-    # fallback respawn at 90s with --timeout 120; if the first attempt
-    # already succeeded, this one returns harmlessly because raspicat is
-    # already in the world.
+    # built-in 30s service-wait timeout. Under CPU contention (gzserver +
+    # gzclient GL + the edge node importing torch, all starting at once) the
+    # gazebo_ros_factory's /spawn_entity service can take well over two minutes
+    # to become discoverable, so the original spawn dies and the world stays
+    # empty. Schedule a fallback respawn shortly after the first attempt gives
+    # up (~35s) and let it wait a long time (-timeout 600) for the service. If
+    # the first attempt already succeeded, the get_model_list guard short-
+    # circuits and this returns harmlessly. The guard call itself is wrapped in
+    # `timeout` so a not-yet-ready service can't hang the check indefinitely.
     respawn_fallback = TimerAction(
-        period=90.0,
+        period=35.0,
         actions=[
             ExecuteProcess(
                 cmd=[
                     'bash', '-lc',
-                    'ros2 service call /gazebo/get_model_list '
+                    'timeout 10 ros2 service call /gazebo/get_model_list '
                     'gazebo_msgs/srv/GetModelList "{}" 2>/dev/null '
                     '| grep -q raspicat || '
                     'ros2 run gazebo_ros spawn_entity.py '
                     '-entity raspicat -topic /robot_description '
-                    '-x 0.0 -y 0.0 -z 0.0 --timeout 120',
+                    '-x 0.0 -y 0.0 -z 0.0 -timeout 600',
                 ],
                 output='screen',
             ),
