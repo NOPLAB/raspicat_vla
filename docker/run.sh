@@ -3,10 +3,11 @@
 #
 # Subcommands:
 #   build TARGET            asyncvla | omnivla | test | real | sim | --all
-#   run MODEL MODE [OPTS]   MODEL = asyncvla | omnivla
+#   run MODEL MODE [OPTS]   MODEL = asyncvla | omnivla | omnivla_edge
 #                           MODE  = --remote {--cpu|--gpu}
 #                                   --real --host HOST
 #                                   --sim --host HOST
+#                                   --edge-local            (omnivla_edge only)
 #
 # Run `run.sh --help` for the full reference.
 set -euo pipefail
@@ -47,7 +48,7 @@ Commands:
   build TARGET            Build a Docker image
     TARGET = asyncvla | omnivla | test | real | sim | --all
   run MODEL MODE [OPTS]   Run a configuration
-    MODEL = asyncvla | omnivla
+    MODEL = asyncvla | omnivla | omnivla_edge
     MODE:
       --remote {--cpu|--gpu} [--host BIND[:PORT]]
                                     Host the cloud-side gRPC server here.
@@ -59,6 +60,12 @@ Commands:
                                     Uses Dockerfile.real.
       --sim  --host HOST[:PORT]     Edge + Gazebo simulation, cloud at
                                     HOST:PORT. Uses Dockerfile.sim. Plan 3 wip.
+      --edge-local                  Plan 2B Path 2 (omnivla_edge ONLY): run the
+                                    OmniVLA-edge policy ON the edge, standalone —
+                                    no cloud, just edge node + follower
+                                    (mvp_omnivla_edge.launch.py). Requires CUDA
+                                    and models/omnivla-edge/omnivla-edge.pth.
+                                    Uses Dockerfile.real with --gpus all.
   test [PYTEST_ARGS...]   Run pytest in raspicat-vla-test (CPU). Auto-builds
                           the image if missing. Pass extra args to pytest:
                             run.sh test                        # full suite
@@ -76,6 +83,7 @@ Examples:
   run.sh run asyncvla --real --host 192.168.1.2            # default port
   run.sh run asyncvla --real --host 192.168.1.2:8080
   run.sh run omnivla  --sim  --host 192.168.1.2:9000
+  run.sh run omnivla_edge --edge-local                     # Path 2, standalone on-edge policy (GPU)
   run.sh test                                              # full pytest suite
   run.sh test -k omnivla                                   # filter by name
 
@@ -293,12 +301,43 @@ run_sim() {
         "
 }
 
+# Plan 2B Path 2: the OmniVLA-edge policy runs entirely on the edge. The edge
+# node operates standalone — no cloud, no gRPC, no embedding cache — so this is a
+# single-host run of mvp_omnivla_edge.launch.py (edge node + follower). Needs
+# CUDA (the vendored OmniVLA_edge forward pass is GPU-only) and the omnivla-edge
+# weights at models/omnivla-edge/omnivla-edge.pth.
+run_edge_local() {
+    local image="${IMAGES[real]}"
+    if ! docker image inspect "$image" >/dev/null 2>&1; then
+        err "image ${image} not built; run \`run.sh build real\` first."
+        return 1
+    fi
+    warn "Path 2 runs the OmniVLA-edge policy on-device and REQUIRES CUDA."
+    warn "Dockerfile.real ships CPU torch; on a GPU host, rebuild it with a CUDA torch wheel."
+    warn "Needs weights at models/omnivla-edge/omnivla-edge.pth (scripts/download_omnivla_edge_checkpoints.sh)."
+    mkdir -p "${HOME}/.cache/clip"
+    log "omnivla_edge edge-local (image=${image}, --gpus all); standalone edge + follower"
+    docker run --rm --gpus all --user "$(id -u):$(id -g)" -e HOME=/tmp \
+        --network host \
+        -v "$REPO_ROOT:/workspace" \
+        -v "$HF_CACHE_DIR:/tmp/.cache/huggingface" \
+        -v "${HOME}/.cache/clip:/tmp/.cache/clip" \
+        "$image" bash -lc "
+            source /opt/ros/humble/setup.bash
+            source /opt/real_ws/install/setup.bash
+            cd /workspace
+            $(_workspace_build_cmd)
+            exec ros2 launch raspicat_vla_bringup mvp_omnivla_edge.launch.py \
+                device:=cuda:0
+        "
+}
+
 cmd_run() {
     local model=${1:-}
     case $model in
-        asyncvla|omnivla) ;;
+        asyncvla|omnivla|omnivla_edge) ;;
         '')
-            err "run: missing model (asyncvla|omnivla)"; usage; return 1 ;;
+            err "run: missing model (asyncvla|omnivla|omnivla_edge)"; usage; return 1 ;;
         *)
             err "run: unknown model '$model'"; usage; return 1 ;;
     esac
@@ -310,6 +349,7 @@ cmd_run() {
             --remote) mode=remote; shift ;;
             --real)   mode=real; shift ;;
             --sim)    mode=sim; shift ;;
+            --edge-local) mode=edge_local; shift ;;
             --host)
                 [[ $# -ge 2 ]] || { err "--host requires an argument"; return 1; }
                 host=$2; shift 2 ;;
@@ -320,7 +360,20 @@ cmd_run() {
         esac
     done
 
+    # omnivla_edge (Path 2) is single-host only; the other models don't have a
+    # local policy to run on the edge.
+    if [[ $model == omnivla_edge && $mode != edge_local ]]; then
+        err "omnivla_edge only supports --edge-local (got mode '${mode:-none}')"; return 1
+    fi
+    if [[ $model != omnivla_edge && $mode == edge_local ]]; then
+        err "--edge-local is only valid for model omnivla_edge"; return 1
+    fi
+
     case $mode in
+        edge_local)
+            [[ -n $host ]] && warn "--host is ignored for --edge-local (standalone, no cloud)"
+            run_edge_local
+            ;;
         remote)
             if [[ -z $device ]]; then
                 err "--remote requires --cpu or --gpu"; return 1

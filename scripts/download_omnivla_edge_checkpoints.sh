@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
-# Download the OmniVLA cloud backbone (NHirose/omnivla-original) into
-# ./models/omnivla-original/. This is the Plan 2B Path 1 checkpoint — the
-# cloud-side OmniVLA-original backbone (adapter_kind=omnivla).
+# Download the OmniVLA-edge on-device policy (NHirose/omnivla-edge) into
+# ./models/omnivla-edge/. This is the Plan 2B Path 2 checkpoint — the full
+# policy that runs on the robot (adapter_kind=omnivla_edge_local):
+#   - omnivla-edge.pth   (EfficientNet-b0 encoders + FiLM + transformer decoder)
+# CLIP ViT-B/32 is fetched separately by the `clip` package at first load.
 #
-# Path 2 (on-edge policy) uses scripts/download_omnivla_edge_checkpoints.sh.
+# Path 1 (cloud OmniVLA-original) uses scripts/download_omnivla_checkpoints.sh.
 #
 # Uses the host's ~/.cache/huggingface so repeat runs are instant.
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-OUT_DIR="${REPO_ROOT}/models/omnivla-original"
+OUT_DIR="${REPO_ROOT}/models/omnivla-edge"
 
 mkdir -p "${OUT_DIR}"
 
@@ -19,11 +21,11 @@ import os
 from huggingface_hub import snapshot_download
 
 p = snapshot_download(
-    repo_id="NHirose/omnivla-original",
+    repo_id="NHirose/omnivla-edge",
     local_dir="${OUT_DIR}",
     local_dir_use_symlinks=False,
 )
-print(f"== NHirose/omnivla-original -> {p}")
+print(f"== NHirose/omnivla-edge -> {p}")
 for root, _, files in os.walk(p):
     for f in files:
         full = os.path.join(root, f)
