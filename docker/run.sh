@@ -162,8 +162,13 @@ cmd_build() {
     local target=${1:-}
     case $target in
         --all)
-            local rc=0
-            for t in asyncvla omnivla test real sim; do
+            local rc=0 remote_targets=(asyncvla omnivla)
+            # On Jetson the x86 remote images can't build (no aarch64 cu121
+            # torch wheel); build their ARM variants instead.
+            if is_jetson; then
+                remote_targets=(asyncvla-jetson omnivla-jetson)
+            fi
+            for t in "${remote_targets[@]}" test real sim; do
                 build_one "$t" || rc=1
             done
             return $rc
