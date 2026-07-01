@@ -19,7 +19,7 @@ A newer, **separate** effort (`app/`, `docs/mobile_port_spec.md`) ports OmniVLA-
 - `proto/raspicat_vla.proto` — source of truth for the edge↔remote gRPC interface. Generated stubs live at `src/raspicat_vla_proto/raspicat_vla_proto/raspicat_vla_pb2*.py` and are also gitignored — regenerate with `scripts/gen_proto.sh`.
 - `proto/edge_action.proto` — **independent** phone→Pi interface for the mobile port (`EdgeActionService.StreamActions`, phone = client, Pi = server). Not wired into `scripts/gen_proto.sh` yet, and the Pi-side server is **not implemented** — this is Phase-4 work per `docs/mobile_port_spec.md`.
 - `app/` — Flutter (Android/iOS) smartphone app for on-device OmniVLA-edge inference. **Not built by colcon**; separate Dart/Flutter toolchain. `app/assets/{models,clip}/` hold the ONNX weights + CLIP BPE vocab (gitignored, see their READMEs); absent → the app runs but falls back to dummy trajectories / zeroed text features.
-- `scripts/sim_control.{sh,py}` — drive a running sim from the host (motor power + VLA goals); `.sh` is a thin wrapper that runs the `.py` helper inside the sim container.
+- `scripts/control.{sh,py}` — drive a running stack from the host (motor power + VLA goals); `.sh` is a thin wrapper that runs the `.py` helper inside the edge container. Mode-agnostic: it auto-detects the edge container across the real/sim/test images (override with `RASPICAT_VLA_CONTAINER`), so it works for `--mode edge`/`cmd_vel`/`sim`/`edge-local`. A bare `--mode remote` box runs no edge node, so there is nothing to control there.
 
 ## Architecture
 

@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""Send goals / motor commands to a running raspicat_vla sim (or real edge).
+"""Send goals / motor commands to a running raspicat_vla edge (sim or real).
+
+Mode-agnostic: it talks to whatever edge node is up (edge, cmd_vel, sim, or
+edge-local) — the goal topic and /motor_power service are the same across them.
+A bare ``--mode remote`` box has no edge node, so there is nothing here to drive.
 
 Runs *inside* the ROS environment — it needs rclpy and the raspicat_vla_msgs
-overlay on the path. From the host use the ``scripts/sim_control.sh`` wrapper,
-which execs this inside the running sim container with the overlays sourced.
+overlay on the path. From the host use the ``scripts/control.sh`` wrapper, which
+execs this inside the running edge container with the overlays sourced.
 
 Subcommands::
 
@@ -12,11 +16,11 @@ Subcommands::
     goal text "go down the hallway"   send a TEXT (language) goal
     goal image /path/to/goal.jpg      send an IMAGE goal (path inside container)
     stop                               motor off (robot coasts to a halt)
-    status                             print cmd_vel / sim_cmd_vel / odom once
+    status                             print cmd_vel / cmd_vel_vla / sim_cmd_vel / odom once
 
-The OmniVLA edge stays idle (zero cmd_vel) until a goal arrives, and the
-raspimouse gates cmd_vel -> sim_cmd_vel on motor power, so a typical first run
-is ``motor on`` followed by ``goal pose 2 0``.
+The edge stays idle (zero cmd_vel) until a goal arrives, and the raspimouse gates
+cmd_vel -> sim_cmd_vel on motor power, so a typical first run is ``motor on``
+followed by ``goal pose 2 0``. ``motor off`` (or ``stop``) releases the motors.
 """
 from __future__ import annotations
 
@@ -118,14 +122,20 @@ def _status(node: Node) -> int:
             seen[topic] = fmt(msg)
         return node.create_subscription(msg_type, topic, cb, 1)
 
-    grab('/cmd_vel', Twist, lambda m: f'lin.x={m.linear.x:.3f} ang.z={m.angular.z:.3f}')
-    grab('/sim_cmd_vel', Twist, lambda m: f'lin.x={m.linear.x:.3f} ang.z={m.angular.z:.3f}')
+    twist_fmt = lambda m: f'lin.x={m.linear.x:.3f} ang.z={m.angular.z:.3f}'
+    # /cmd_vel      -> real robot / edge-local; /cmd_vel_vla -> cmd_vel preview
+    # mode (non-motor topic); /sim_cmd_vel + /odom -> Gazebo sim. Whichever the
+    # running mode doesn't publish simply shows "(no message)".
+    topics = ('/cmd_vel', '/cmd_vel_vla', '/sim_cmd_vel', '/odom')
+    grab('/cmd_vel', Twist, twist_fmt)
+    grab('/cmd_vel_vla', Twist, twist_fmt)
+    grab('/sim_cmd_vel', Twist, twist_fmt)
     grab('/odom', Odometry,
          lambda m: f'x={m.pose.pose.position.x:.3f} y={m.pose.pose.position.y:.3f}')
     deadline = time.time() + 3.0
-    while time.time() < deadline and len(seen) < 3:
+    while time.time() < deadline and len(seen) < len(topics):
         rclpy.spin_once(node, timeout_sec=0.1)
-    for t in ('/cmd_vel', '/sim_cmd_vel', '/odom'):
+    for t in topics:
         print(f'{t:16s} {seen.get(t, "(no message)")}')
     return 0
 
@@ -135,7 +145,7 @@ def main(argv: list[str]) -> int:
         print(__doc__)
         return 2
     rclpy.init()
-    node = rclpy.create_node('raspicat_sim_control')
+    node = rclpy.create_node('raspicat_vla_control')
     try:
         cmd = argv[0]
         if cmd == 'motor':
