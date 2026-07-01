@@ -171,6 +171,9 @@ Environment overrides:
   GRPC_PORT            gRPC port (default 50051)
   HF_CACHE_DIR         HuggingFace cache mount (default $HOME/.cache/huggingface)
   RASPICAT_VLA_JETSON  1 = force Jetson images + nvidia runtime; 0 = force x86
+  ROS_DOMAIN_ID        forwarded into every ROS container to isolate DDS
+                       discovery (unset => ROS default 0). Under sudo pass it
+                       through: sudo ROS_DOMAIN_ID=N ./docker/run.sh ...
 EOF
 }
 
@@ -216,6 +219,14 @@ camera_docker_args() {
             ;;
     esac
 }
+
+# Forward the host's ROS_DOMAIN_ID into every ROS container so DDS discovery can
+# be isolated (e.g. several robots / dev boxes sharing a LAN). Set once from the
+# host env; empty when unset (=> ROS default domain 0). NOTE: sudo scrubs the
+# environment, so when running run.sh under sudo pass it through explicitly:
+# `sudo ROS_DOMAIN_ID=N ./docker/run.sh …` (or `sudo -E`).
+ROS_DOMAIN_DOCKER_ARGS=()
+[[ -n ${ROS_DOMAIN_ID:-} ]] && ROS_DOMAIN_DOCKER_ARGS=(-e "ROS_DOMAIN_ID=${ROS_DOMAIN_ID}")
 
 # Append camera_kind:=/camera_device:= to the launch argv array named by $1,
 # skipping any that are empty — ROS2 rejects a bare `foo:=` with no value, and
@@ -404,6 +415,7 @@ _run_edge_launch() {
     fi
     docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
         -e RASPICAT_VLA_REBUILD \
+        "${ROS_DOMAIN_DOCKER_ARGS[@]}" \
         --network host \
         "${device_args[@]}" \
         -v "$REPO_ROOT:/workspace" \
@@ -479,6 +491,7 @@ run_sim() {
         log "${model} edge (sim-fallback, image=${image}); cloud=${host}:${port}"
         docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
             -e RASPICAT_VLA_REBUILD \
+            "${ROS_DOMAIN_DOCKER_ARGS[@]}" \
             --network host \
             -v "$REPO_ROOT:/workspace" \
             -v "$HF_CACHE_DIR:/tmp/.cache/huggingface" \
@@ -542,6 +555,7 @@ run_sim() {
     log "${model} sim (image=${image}); cloud=${host}:${port}"
     docker run --rm --user "${uid}:${gid}" -e HOME=/tmp \
         -e ROS_LOCALHOST_ONLY=1 \
+        "${ROS_DOMAIN_DOCKER_ARGS[@]}" \
         --network host \
         "${gpu_args[@]}" \
         "${display_args[@]}" \
@@ -588,6 +602,7 @@ run_edge_local() {
     log "omnivla_edge edge-local (image=${image}, ${gpu_flag}); standalone edge + follower${camera_kind:+; camera=${camera_kind}${camera_device:+ ${camera_device}}}"
     # shellcheck disable=SC2086
     docker run --rm $gpu_flag --user "$(id -u):$(id -g)" -e HOME=/tmp \
+        "${ROS_DOMAIN_DOCKER_ARGS[@]}" \
         --network host \
         "${device_args[@]}" \
         -v "$REPO_ROOT:/workspace" \
@@ -757,6 +772,7 @@ cmd_test() {
 
     log "pytest in ${image} (${#args[@]} args)"
     docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
+        "${ROS_DOMAIN_DOCKER_ARGS[@]}" \
         -v "$REPO_ROOT:/workspace" \
         "$image" bash -lc "
             set -e
