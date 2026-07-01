@@ -8,16 +8,12 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
-    DeclareLaunchArgument, EmitEvent, ExecuteProcess, RegisterEventHandler,
+    DeclareLaunchArgument, ExecuteProcess, RegisterEventHandler,
     TimerAction,
 )
-from launch.event_handlers import OnProcessStart
-from launch.events import matches_action
+from launch.event_handlers import OnProcessExit, OnProcessStart
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import LifecycleNode, Node
-from launch_ros.event_handlers import OnStateTransition
-from launch_ros.events.lifecycle import ChangeState
-from lifecycle_msgs.msg import Transition
 
 
 def generate_launch_description():
@@ -50,14 +46,15 @@ def generate_launch_description():
             'remote_address': ['localhost:', grpc_port],
         }],
     )
-    configure = EmitEvent(event=ChangeState(
-        lifecycle_node_matcher=matches_action(edge),
-        transition_id=Transition.TRANSITION_CONFIGURE,
-    ))
-    activate = EmitEvent(event=ChangeState(
-        lifecycle_node_matcher=matches_action(edge),
-        transition_id=Transition.TRANSITION_ACTIVATE,
-    ))
+    node_name = '/vla_edge_node'
+    configure_cmd = ExecuteProcess(
+        cmd=['ros2', 'lifecycle', 'set', node_name, 'configure'],
+        output='screen',
+    )
+    activate_cmd = ExecuteProcess(
+        cmd=['ros2', 'lifecycle', 'set', node_name, 'activate'],
+        output='screen',
+    )
 
     follower = Node(
         package='raspicat_vla_edge',
@@ -74,15 +71,16 @@ def generate_launch_description():
         DeclareLaunchArgument('inference_ms', default_value='50.0'),
         dummy_server,
         edge,
-        # Delay the initial configure: OnProcessStart fires at process fork,
-        # before the node's change_state service exists, so an immediate
-        # EmitEvent(configure) is silently dropped on slow hosts (e.g. Jetson).
+        # Drive the lifecycle via `ros2 lifecycle set`: launch_ros's
+        # EmitEvent(ChangeState) was silently dropped on slow hosts (Jetson),
+        # leaving the node stuck 'unconfigured'. configure runs a few seconds
+        # after start; activate runs once configure exits (node is 'inactive').
         RegisterEventHandler(OnProcessStart(
             target_action=edge,
-            on_start=[TimerAction(period=5.0, actions=[configure])],
+            on_start=[TimerAction(period=4.0, actions=[configure_cmd])],
         )),
-        RegisterEventHandler(OnStateTransition(
-            target_lifecycle_node=edge, goal_state='inactive', entities=[activate],
+        RegisterEventHandler(OnProcessExit(
+            target_action=configure_cmd, on_exit=[activate_cmd],
         )),
         follower,
     ])
