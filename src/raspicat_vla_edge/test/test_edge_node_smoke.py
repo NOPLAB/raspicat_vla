@@ -7,6 +7,7 @@ import pytest
 import rclpy
 from nav_msgs.msg import Path
 from rclpy.executors import MultiThreadedExecutor
+from rclpy.qos import DurabilityPolicy, QoSProfile
 from sensor_msgs.msg import Image
 import numpy as np
 
@@ -52,7 +53,10 @@ def test_edge_node_publishes_path(ros_runtime):
 
         # External publisher to push goal + image
         pub_node = rclpy.create_node('test_pub')
-        goal_pub = pub_node.create_publisher(GoalSpecMsg, '/raspicat_vla/goal', 1)
+        # Edge subscribes to goals TRANSIENT_LOCAL; match it (a VOLATILE writer
+        # would not connect to a TRANSIENT_LOCAL reader).
+        goal_qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
+        goal_pub = pub_node.create_publisher(GoalSpecMsg, '/raspicat_vla/goal', goal_qos)
         img_pub = pub_node.create_publisher(Image, '/camera/image_raw', 1)
 
         received_paths = []

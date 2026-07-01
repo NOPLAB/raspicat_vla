@@ -18,6 +18,7 @@ from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Path
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.lifecycle import LifecycleNode, TransitionCallbackReturn, State
+from rclpy.qos import DurabilityPolicy, QoSProfile
 from sensor_msgs.msg import Image
 
 from raspicat_vla_msgs.msg import (
@@ -193,8 +194,16 @@ class VLAEdgeNode(LifecycleNode):
         self._image_sub = self.create_subscription(
             Image, image_topic, self._on_image, 10,
         )
+        # Goals are latched: control.py publishes a single goal with
+        # TRANSIENT_LOCAL durability and exits. A VOLATILE reader only gets
+        # samples published *after* the match is established, so on a slow host
+        # (Jetson discovery lag) the one-shot goal races the connection and is
+        # silently dropped — the edge then sits in WAITING_REMOTE with
+        # frame_counter=0 forever. Match the writer's durability so the last
+        # goal is delivered on match regardless of timing.
+        goal_qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self._goal_sub = self.create_subscription(
-            GoalSpecMsg, goal_topic, self._on_goal, 1,
+            GoalSpecMsg, goal_topic, self._on_goal, goal_qos,
         )
         self._path_pub = self.create_publisher(Path, path_topic, 10)
         self._status_pub = self.create_publisher(DiagnosticArray, status_topic, 10)
