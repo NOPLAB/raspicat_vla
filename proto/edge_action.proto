@@ -1,0 +1,34 @@
+// スマホ(推論) -> Raspberry Pi(制御) の軽量インターフェース。
+// docs/mobile_port_spec.md §4。既存 raspicat_vla.proto とは独立。
+//
+// スマホが client、Pi が server。スマホは推論結果の action chunk を stream 送信し、
+// Pi は追従状態を stream で返す。Pi 側はウォッチドッグで古い chunk を破棄しモーター停止。
+//
+// Dart 生成:  protoc --dart_out=grpc:app/lib/src/grpc/gen -Iproto proto/edge_action.proto
+// Python生成: scripts/gen_proto.sh に追記 (Pi 側 server 実装用)
+
+syntax = "proto3";
+
+package raspicat_vla.edge;
+
+service EdgeActionService {
+  // スマホ -> Pi: action chunk を stream 送信、Pi -> スマホ: 制御 ACK を stream 返却。
+  rpc StreamActions(stream ActionChunk) returns (stream ControlAck);
+}
+
+message ActionChunk {
+  uint64 frame_id = 1;         // 連番
+  uint64 capture_time_ns = 2;  // カメラ取得時刻 (端末時計)
+  uint32 num_tokens = 3;       // = 8 (len_traj_pred)
+  uint32 embed_dim = 4;        // = 4 (x, y, cos, sin)
+  bytes  values_fp16 = 5;      // (num_tokens*embed_dim) fp16 little-endian
+  bool   scaled_to_m = 6;      // x,y が既にメートルか (false なら Pi 側で ×0.1)
+  string goal_id = 7;          // ゴール識別 (切替検知・安全)
+  bool   from_model = 8;       // false=ダミー(モデル未配置)。安全側で走行抑制可
+}
+
+message ControlAck {
+  uint64 frame_id = 1;   // echo
+  bool   following = 2;  // Pi が追従中か
+  string status = 3;     // "ok" | "estopped" | "stale" | "no_goal" ...
+}
