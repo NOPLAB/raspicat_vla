@@ -49,6 +49,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   String _error = '';
   String _tickError = '';
   bool _engineReady = false;
+  bool _running = true; // 推論ループの再生/停止トグル
   String _engineStatus = '初期化中';
 
   @override
@@ -123,7 +124,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   Future<void> _tick() async {
-    if (_busy) return;
+    if (_busy || !_running) return;
     final goal = _goal;
     final camImage = _latestCameraImage;
     if (goal == null || camImage == null) return;
@@ -132,7 +133,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     try {
       final rgb = centerCropToAspect(cameraImageToRgb(camImage));
       _currentFrame = rgb;
-      final chunk = _engine.inferChunk(rgb, goal);
+      final chunk = await _engine.inferChunk(rgb, goal);
       _frameId++;
       _sender.submit(chunk, frameId: _frameId, goalId: goal.id);
       sw.stop();
@@ -197,6 +198,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       appBar: AppBar(
         title: const Text('Raspicat OmniVLA (edge)'),
         actions: [
+          IconButton(
+            tooltip: _running ? '推論を停止' : '推論を再生',
+            icon: Icon(_running ? Icons.pause_circle : Icons.play_circle),
+            onPressed: () => setState(() => _running = !_running),
+          ),
           IconButton(
             icon: const Icon(Icons.info_outline),
             onPressed: () => showAboutDialog(
@@ -279,7 +285,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('エンジン: $_engineStatus   推論: ${_lastLatencyMs}ms'),
+            Text('エンジン: $_engineStatus   推論: ${_lastLatencyMs}ms'
+                '${_running ? "" : "   [停止中]"}'),
             Text('ゴール: ${_goal?.id ?? "未設定"}'),
             Text('送信: ${_sender.status}'),
             if (_tickError.isNotEmpty)

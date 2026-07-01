@@ -52,7 +52,8 @@ class OmniVlaEngine {
   }
 
   /// 1 フレーム分の推論。[curRgb] は RGB (できれば FOV 調整済み)。
-  ActionChunk inferChunk(img.Image curRgb, Goal goal) {
+  /// ONNX 実行は別 isolate (runAsync) で行うため Future を返す。
+  Future<ActionChunk> inferChunk(img.Image curRgb, Goal goal) async {
     // 1. 観測履歴。
     _ring.push(normalizeChw(curRgb, OmniVlaConfig.obsSize));
     final obsImages = _ring.stack(); // (1,18,96,96)
@@ -75,10 +76,10 @@ class OmniVlaEngine {
       ..setRange(6 * area, 9 * area, _ring.current);
 
     // 3. text 特徴 (キャッシュ)。
-    final featText = _textFeatures(goal.mode == GoalMode.text ? goal.text : '');
+    final featText = await _textFeatures(goal.mode == GoalMode.text ? goal.text : '');
 
     // 4. 推論 (未配置ならダミー)。
-    final out = _runner.runModel(
+    final out = await _runner.runModel(
       obsImages: obsImages,
       goalPose: goalPose,
       mapImages: mapImages,
@@ -87,13 +88,17 @@ class OmniVlaEngine {
       featText: featText,
       curLarge: curLarge,
     );
-    if (out != null && out.length == OmniVlaConfig.lenTrajPred * OmniVlaConfig.actionDim) {
+    // 数値ガード: モバイル ORT の稀な破綻 (非有限/桁あふれ) が waypoint を
+    // 画面外・robot へ飛ばすのを防ぐ。異常なら可視のダミーへフォールバック。
+    if (out != null &&
+        out.length == OmniVlaConfig.lenTrajPred * OmniVlaConfig.actionDim &&
+        _isSane(out)) {
       return ActionChunk(out, fromModel: true);
     }
     return _dummyChunk(goal);
   }
 
-  Float32List _textFeatures(String text) {
+  Future<Float32List> _textFeatures(String text) async {
     if (text == _textCacheKey && _textCacheFeat != null) {
       return _textCacheFeat!;
     }
@@ -103,7 +108,7 @@ class OmniVlaEngine {
       // EOT トークンの位置 (ArgMax の代替として ONNX に渡す)。
       var eotIndex = tokens.indexOf(_tokenizer.eotToken);
       if (eotIndex < 0) eotIndex = tokens.length - 1;
-      final encoded = _runner.encodeText(tokens, eotIndex);
+      final encoded = await _runner.encodeText(tokens, eotIndex);
       if (encoded != null && encoded.length == OmniVlaConfig.clipTextDim) {
         feat = encoded;
       }
@@ -138,6 +143,14 @@ class OmniVlaEngine {
       raw[o + 3] = math.sin(th);
     }
     return ActionChunk(raw, fromModel: false);
+  }
+
+  /// waypoint 値が有限かつ妥当な範囲 (|v| < 1e4 spacing 単位) か。
+  static bool _isSane(Float32List v) {
+    for (final x in v) {
+      if (!x.isFinite || x.abs() > 1e4) return false;
+    }
+    return true;
   }
 
   void dispose() => _runner.dispose();

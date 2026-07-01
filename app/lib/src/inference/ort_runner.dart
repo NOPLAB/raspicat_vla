@@ -31,6 +31,10 @@ const _textAsset = 'assets/models/clip_text.onnx';
 const _textInputName = 'tokens';
 const _eotInputName = 'eot_index';
 
+/// 推論に使う intra-op スレッド数。既定 (0) だと ORT が全コアを掴んで CPU 100%
+/// になり Flutter の描画/GC が枯渇して画面が固まる。意図的に絞って残りを UI に回す。
+const _intraOpThreads = 2;
+
 class OrtRunner {
   OrtSession? _model;
   OrtSession? _text;
@@ -51,7 +55,10 @@ class OrtRunner {
     try {
       final raw = await rootBundle.load(asset);
       final bytes = raw.buffer.asUint8List(raw.offsetInBytes, raw.lengthInBytes);
-      return OrtSession.fromBuffer(bytes, OrtSessionOptions());
+      final options = OrtSessionOptions()
+        ..setIntraOpNumThreads(_intraOpThreads)
+        ..setInterOpNumThreads(1);
+      return OrtSession.fromBuffer(bytes, options);
     } catch (e) {
       // 未配置 or ロード失敗。フォールバックへ。
       lastError = '$asset: $e';
@@ -63,7 +70,7 @@ class OrtRunner {
 
   /// CLIP トークン列 (長さ 77) を 512 次元特徴へ。[eotIndex] は EOT トークンの
   /// 位置 (argmax の代替。モバイル ORT に ArgMax が無いため外から渡す)。未ロード時 null。
-  Float32List? encodeText(Int32List tokens, int eotIndex) {
+  Future<Float32List?> encodeText(Int32List tokens, int eotIndex) async {
     final session = _text;
     if (session == null) return null;
     // ONNX の tokens 入力は int64。Int32List のままだと型不一致で失敗する。
@@ -77,10 +84,11 @@ class OrtRunner {
     );
     final runOptions = OrtRunOptions();
     try {
-      final outputs = session.run(
-        runOptions,
-        {_textInputName: input, _eotInputName: eot},
-      );
+      // runAsync: 別 isolate で実行し UI スレッドを塞がない。
+      final future =
+          session.runAsync(runOptions, {_textInputName: input, _eotInputName: eot});
+      final outputs = future == null ? null : await future;
+      if (outputs == null) return null;
       final flat = _flattenToFloat32(outputs.first?.value);
       for (final o in outputs) {
         o?.release();
@@ -94,7 +102,7 @@ class OrtRunner {
   }
 
   /// 7 入力を渡し action chunk (flatten 済み 8*4) を返す。未ロード時は null。
-  Float32List? runModel({
+  Future<Float32List?> runModel({
     required Float32List obsImages, // (1,18,96,96)
     required Float32List goalPose, // (1,4)
     required Float32List mapImages, // (1,9,96,96)
@@ -102,7 +110,7 @@ class OrtRunner {
     required int modalityId,
     required Float32List featText, // (1,512)
     required Float32List curLarge, // (1,3,224,224)
-  }) {
+  }) async {
     final session = _model;
     if (session == null) return null;
 
@@ -126,7 +134,10 @@ class OrtRunner {
     };
     final runOptions = OrtRunOptions();
     try {
-      final outputs = session.run(runOptions, inputs);
+      // runAsync: 別 isolate で実行し UI スレッドを塞がない。
+      final future = session.runAsync(runOptions, inputs);
+      final outputs = future == null ? null : await future;
+      if (outputs == null) return null;
       // 出力先頭が action_pred (1, 8, 4) 想定。
       final flat = _flattenToFloat32(outputs.first?.value);
       for (final o in outputs) {
