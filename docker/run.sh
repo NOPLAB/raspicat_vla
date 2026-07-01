@@ -180,6 +180,21 @@ resolve_camera_device() {
     esac
 }
 
+# Docker args to expose a v4l2 camera device to a container that runs as
+# `--user uid:gid`. `--device` only creates the node inside the container; the
+# device is mode 660 root:video, so the unprivileged container user also needs
+# to be in the device's owning group or open() fails with EACCES. Emit the
+# `--group-add <gid>` for that group (numeric gid works even if the group name
+# doesn't exist inside the container). $1 = device path ('' -> no args).
+camera_device_args() {
+    local dev=$1
+    [[ -n $dev ]] || return 0
+    printf '%s\n' --device "$dev"
+    if [[ -e $dev ]]; then
+        printf '%s\n' --group-add "$(stat -c '%g' "$dev")"
+    fi
+}
+
 # split_hostport HOST[:PORT] DEFAULT_HOST DEFAULT_PORT -> "HOST PORT" on stdout.
 # Empty HOST (e.g. ":8080") falls back to DEFAULT_HOST. Missing :PORT -> DEFAULT_PORT.
 split_hostport() {
@@ -339,7 +354,7 @@ _run_edge_launch() {
     shift 2
     local launch_argv=("$@")
     local device_args=()
-    [[ -n $camera_device ]] && device_args+=(--device "$camera_device")
+    mapfile -t device_args < <(camera_device_args "$camera_device")
     local image="${IMAGES[real]}"
     local has_real_image=true
     if ! docker image inspect "$image" >/dev/null 2>&1; then
@@ -533,7 +548,7 @@ run_edge_local() {
     local gpu_flag="--gpus all"
     is_jetson && gpu_flag="--runtime nvidia"
     local device_args=()
-    [[ -n $camera_device ]] && device_args+=(--device "$camera_device")
+    mapfile -t device_args < <(camera_device_args "$camera_device")
     log "omnivla_edge edge-local (image=${image}, ${gpu_flag}); standalone edge + follower${camera_device:+; camera=${camera_device}}"
     # shellcheck disable=SC2086
     docker run --rm $gpu_flag --user "$(id -u):$(id -g)" -e HOME=/tmp \
