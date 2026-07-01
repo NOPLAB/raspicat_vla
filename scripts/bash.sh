@@ -16,9 +16,20 @@
 #   scripts/bash.sh                     # interactive bash
 #   scripts/bash.sh ros2 topic list     # run one command, then exit
 #
-# ROS_DOMAIN_ID is forwarded from the host when set, so this joins the same DDS
-# domain as any edge/remote container already running via vla.sh. Networking is
-# --network host for exactly that reason.
+# Seeing a running vla.sh stack's topics from here needs two things to line up:
+#
+#   1. DDS domain. ROS_DOMAIN_ID is forwarded from the host when set — so it must
+#      be set (and exported) in the shell you launch this from, matching the value
+#      the vla.sh container got. If you started vla.sh with `sudo ROS_DOMAIN_ID=N
+#      ./scripts/vla.sh …`, that N only reached the container; export the SAME N
+#      here (fish: `set -x ROS_DOMAIN_ID N`) or `ros2 topic list` comes back empty.
+#
+#   2. Transport. FastDDS talks to same-host peers over shared memory by default,
+#      but each container has its own /dev/shm, so discovery succeeds (topics show
+#      up) yet `ros2 topic echo` stays silent. We sidestep that by pinning THIS
+#      container to a UDP-only FastDDS profile — works over --network host without
+#      sharing /dev/shm, and needs no change to the vla.sh container. Opt out with
+#      RASPICAT_VLA_UDP_ONLY=0 (e.g. if you later run vla.sh with --ipc host).
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -50,7 +61,37 @@ else
     inner="exec${quoted}"
 fi
 
+# UDP-only FastDDS profile (see header). Written into the container at /tmp (the
+# mapped user's HOME) and selected via FASTRTPS_DEFAULT_PROFILES_FILE. Attributes
+# use single quotes so the XML carries no `"` that would close the outer bash -lc
+# string. Disable with RASPICAT_VLA_UDP_ONLY=0.
+udp_only_setup=":"
+if [[ ${RASPICAT_VLA_UDP_ONLY:-1} != 0 ]]; then
+    udp_only_setup="
+    cat > /tmp/fastdds_udp_only.xml <<'XML'
+<?xml version='1.0' encoding='UTF-8'?>
+<dds xmlns='http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles'>
+  <profiles>
+    <transport_descriptors>
+      <transport_descriptor>
+        <transport_id>udp_only</transport_id>
+        <type>UDPv4</type>
+      </transport_descriptor>
+    </transport_descriptors>
+    <participant profile_name='udp_only' is_default_profile='true'>
+      <rtps>
+        <userTransports><transport_id>udp_only</transport_id></userTransports>
+        <useBuiltinTransports>false</useBuiltinTransports>
+      </rtps>
+    </participant>
+  </profiles>
+</dds>
+XML
+    export FASTRTPS_DEFAULT_PROFILES_FILE=/tmp/fastdds_udp_only.xml"
+fi
+
 exec docker run "${docker_args[@]}" "$IMAGE" bash -lc "
+    ${udp_only_setup}
     source /opt/ros/humble/setup.bash
     [ -f /workspace/install/setup.bash ] && source /workspace/install/setup.bash
     ${inner}
