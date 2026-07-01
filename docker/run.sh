@@ -111,6 +111,8 @@ Commands:
                                     (ros2 topic echo /cmd_vel_vla) without driving
                                     the robot's motors. Feed frames with
                                     tools/publish_fake_image.py or a real camera.
+                                    Add --drive-motors to publish to the real
+                                    /cmd_vel topic instead (motors WILL be driven).
       sim  --host HOST[:PORT]       Edge + Gazebo simulation, cloud at
                                     HOST:PORT. Uses Dockerfile.sim. Plan 3 wip.
       edge-local                    Plan 2B Path 2 (omnivla_edge ONLY): run the
@@ -437,23 +439,28 @@ run_edge() {
 # driving the robot's motors. When the edge exits (or Ctrl-C), tear the server
 # down via the EXIT trap.
 run_cmd_vel() {
-    local model=$1 device=$2 camera_kind=${3:-} camera_device=${4:-}
+    local model=$1 device=$2 camera_kind=${3:-} camera_device=${4:-} cmd_vel_topic=${5:-/cmd_vel_vla}
     local port="$GRPC_PORT"
     local adapter_kind
     adapter_kind=$(edge_adapter_for "$model")
     local server_name="raspicat-vla-cmdvel-server-$$"
 
-    log "cmd_vel: launching ${model} remote server + edge on this host (motors NOT driven)"
+    if [[ $cmd_vel_topic == /cmd_vel ]]; then
+        log "cmd_vel: launching ${model} remote server + edge on this host (MOTORS DRIVEN via /cmd_vel)"
+    else
+        log "cmd_vel: launching ${model} remote server + edge on this host (motors NOT driven)"
+    fi
     # shellcheck disable=SC2064
     trap "docker rm -f '${server_name}' >/dev/null 2>&1 || true" EXIT INT TERM
     _run_remote_server "$model" "$device" "127.0.0.1" "$port" \
         -d --rm --name "$server_name" >/dev/null
 
-    log "cmd_vel: edge -> 127.0.0.1:${port}; follower publishes /cmd_vel_vla (not /cmd_vel)${camera_kind:+; camera=${camera_kind}${camera_device:+ ${camera_device}}}"
+    log "cmd_vel: edge -> 127.0.0.1:${port}; follower publishes ${cmd_vel_topic}${camera_kind:+; camera=${camera_kind}${camera_device:+ ${camera_device}}}"
     local launch_args=(
         ros2 launch raspicat_vla_bringup cmd_vel.launch.py
         "remote_address:=127.0.0.1:${port}"
         "adapter_kind:=${adapter_kind}"
+        "cmd_vel_topic:=${cmd_vel_topic}"
     )
     _append_camera_launch_args launch_args "$camera_kind" "$camera_device"
     _run_edge_launch "$model" "$camera_kind" "$camera_device" "${launch_args[@]}"
@@ -607,7 +614,7 @@ cmd_run() {
     esac
     shift
 
-    local mode='' host='' device='' camera=''
+    local mode='' host='' device='' camera='' drive_motors=''
     while [[ $# -gt 0 ]]; do
         case $1 in
             --mode)
@@ -629,6 +636,7 @@ cmd_run() {
                 camera=$2; shift 2 ;;
             --cpu)    device=cpu; shift ;;
             --gpu)    device=gpu; shift ;;
+            --drive-motors) drive_motors=1; shift ;;
             -h|--help) usage; return 0 ;;
             *) err "run: unknown option '$1'"; usage; return 1 ;;
         esac
@@ -653,6 +661,12 @@ cmd_run() {
         if [[ $camera_kind == v4l2 && ! -e $camera_device ]]; then
             warn "camera device ${camera_device} not present on host; passing it through anyway (edge will fail to open it if still absent at run time)"
         fi
+    fi
+
+    # --drive-motors flips cmd_vel mode from the safe /cmd_vel_vla preview topic to
+    # the real /cmd_vel motor topic; it is meaningless for any other mode.
+    if [[ -n $drive_motors && $mode != cmd_vel ]]; then
+        err "--drive-motors is only valid for --mode cmd_vel (not '$mode')"; return 1
     fi
 
     # --mode edge-local (Path 2, on-edge standalone policy) is only meaningful for
@@ -681,7 +695,12 @@ cmd_run() {
                 err "--mode cmd_vel requires --cpu or --gpu (for the local remote server)"; return 1
             fi
             [[ -n $host ]] && warn "--host is ignored for --mode cmd_vel (server + edge both on 127.0.0.1)"
-            run_cmd_vel "$model" "$device" "$camera_kind" "$camera_device"
+            local cmd_vel_topic=/cmd_vel_vla
+            if [[ -n $drive_motors ]]; then
+                cmd_vel_topic=/cmd_vel
+                warn "--drive-motors: follower publishes to /cmd_vel — the robot's motors WILL be driven"
+            fi
+            run_cmd_vel "$model" "$device" "$camera_kind" "$camera_device" "$cmd_vel_topic"
             ;;
         edge|sim)
             [[ -n $host ]] || { err "--mode $mode requires --host HOST[:PORT]"; return 1; }
