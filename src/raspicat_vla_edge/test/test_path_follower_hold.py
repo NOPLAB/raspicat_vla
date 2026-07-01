@@ -1,8 +1,13 @@
-"""Unit tests for path_follower_node's hold-last-command smoothing.
+"""Unit tests for path_follower_node's command decision.
 
-Drives ``_decide_cmd`` directly with synthetic timestamps so the stop-go
-smoothing is exercised deterministically, without a running executor or the
-20 Hz wall-clock timer.
+A fresh inference result (any new Path) is authoritative and honored verbatim
+— including a fresh stop — so new inferences are never masked by the hold
+latch. The hold only bridges a single-tick gap when the *same* path is
+re-evaluated at 20 Hz with no new path in between.
+
+Drives ``_decide_cmd`` directly with synthetic timestamps so the logic is
+exercised deterministically, without a running executor or the 20 Hz
+wall-clock timer.
 """
 import pytest
 import rclpy
@@ -46,7 +51,7 @@ def _make_node(hold_timeout_sec: float = 1.0) -> PathFollowerNode:
     return node
 
 
-def test_holds_last_command_across_empty_path(ros_runtime):
+def test_new_empty_path_stops_immediately(ros_runtime):
     node = _make_node(hold_timeout_sec=1.0)
     try:
         # Moving forward.
@@ -54,35 +59,54 @@ def test_holds_last_command_across_empty_path(ros_runtime):
         cmd = node._decide_cmd(_t(0.0))
         assert cmd.linear > 0.0
 
-        # Empty path arrives 0.5 s later: within the hold window -> keep moving.
+        # A NEW empty path is a fresh inference result: honor it now and stop,
+        # well within the hold window. The old moving command must not persist.
         node._on_path(_empty_path())
-        held = node._decide_cmd(_t(0.5))
-        assert held.linear == pytest.approx(cmd.linear)
-
-        # Still empty at 1.5 s: past the 1.0 s hold window -> safe-stop.
-        stopped = node._decide_cmd(_t(1.5))
+        stopped = node._decide_cmd(_t(0.1))
         assert stopped.linear == 0.0 and stopped.angular == 0.0
     finally:
         node.destroy_node()
 
 
-def test_hold_window_resets_on_new_motion(ros_runtime):
+def test_new_inference_is_not_masked_by_hold(ros_runtime):
     node = _make_node(hold_timeout_sec=1.0)
     try:
+        # Moving forward, latched.
         node._on_path(_forward_path())
         node._decide_cmd(_t(0.0))
 
+        # A fresh stop, then a fresh forward again: each new path takes effect
+        # immediately -- the hold never republishes the stale command.
         node._on_path(_empty_path())
-        node._decide_cmd(_t(0.8))  # still holding
+        assert node._decide_cmd(_t(0.2)).linear == 0.0
 
-        # New moving path refreshes the latch...
         node._on_path(_forward_path())
-        node._decide_cmd(_t(0.9))
+        assert node._decide_cmd(_t(0.4)).linear > 0.0
 
-        # ...so an empty path at 1.5 s is only 0.6 s past the refresh -> hold.
         node._on_path(_empty_path())
-        held = node._decide_cmd(_t(1.5))
-        assert held.linear > 0.0
+        assert node._decide_cmd(_t(0.6)).linear == 0.0
+    finally:
+        node.destroy_node()
+
+
+def test_hold_bridges_retick_gap_without_new_path(ros_runtime):
+    node = _make_node(hold_timeout_sec=1.0)
+    try:
+        # Moving forward, latched.
+        node._on_path(_forward_path())
+        cmd = node._decide_cmd(_t(0.0))
+        assert cmd.linear > 0.0
+
+        # Same path re-evaluated at the 20 Hz follower rate with NO new path in
+        # between (``_path_new`` stays False). Simulate a momentary zero for the
+        # path we're already following: within the window -> hold last command.
+        node._latest = []
+        held = node._decide_cmd(_t(0.5))
+        assert held.linear == pytest.approx(cmd.linear)
+
+        # Still no new path at 1.5 s: past the 1.0 s hold window -> safe-stop.
+        stopped = node._decide_cmd(_t(1.5))
+        assert stopped.linear == 0.0 and stopped.angular == 0.0
     finally:
         node.destroy_node()
 

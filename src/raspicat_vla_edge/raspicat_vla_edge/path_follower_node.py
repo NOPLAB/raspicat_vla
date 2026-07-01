@@ -26,14 +26,19 @@ class PathFollowerNode(Node):
         # frame_id we warn and zero the command, since blindly following
         # would steer toward the wrong pose.
         self.declare_parameter('expected_frame', 'base_link')
-        # Hold-last-command: paths (hence cmd_vel) only change at the inference
-        # rate (~2 Hz), and some inferences yield a zero command (empty path on
-        # WAITING/STALE, or a pure-pursuit stop), so the raw command stutters
-        # stop-go between inferences. To keep motion continuous we *latch* the
-        # last moving command and keep republishing it when the freshly computed
-        # command is zero, up to hold_timeout_sec. Past that (a genuine stall /
-        # loss of updates) we safe-stop. Set to 0 to disable (revert to
-        # "zero command is emitted immediately").
+        # Hold-last-command (safety net only): the follower re-evaluates the
+        # *same* path at rate_hz (20 Hz) while new paths arrive only at the
+        # inference rate, so between path updates we may recompute a momentary
+        # zero for a path we're already following. To avoid a single-tick
+        # dropout we *latch* the last moving command and keep republishing it
+        # for that gap, up to hold_timeout_sec, then safe-stop.
+        #
+        # IMPORTANT: this hold NEVER masks a fresh inference. When a new Path
+        # arrives (see _on_path -> _path_new), its computed command is honored
+        # verbatim — including a fresh *stop* — so new inference results always
+        # take effect immediately instead of coasting on the old command. The
+        # hold applies only when no new path has arrived since the last tick.
+        # Set to 0 to disable (zero command is emitted immediately).
         self.declare_parameter('hold_timeout_sec', 1.0)
         # A command is "moving" (worth latching) if |linear| or |angular|
         # exceeds this. Below it we treat the command as a stop.
@@ -51,6 +56,10 @@ class PathFollowerNode(Node):
         self._cmd_eps: float = float(self.get_parameter('cmd_epsilon').value)
         self._latest: List[Waypoint] = []
         self._frame_mismatch: bool = False
+        # Set by _on_path whenever a new Path (a fresh inference result) lands;
+        # consumed by _decide_cmd. A fresh result is authoritative and bypasses
+        # the hold latch so new inferences are never masked by a stale command.
+        self._path_new: bool = False
         # Last "moving" command and the time it was computed, for hold-last.
         self._held_cmd: Optional[TwistCmd] = None
         self._held_at = None  # rclpy Time or None
@@ -66,6 +75,9 @@ class PathFollowerNode(Node):
         self._timer = self.create_timer(1.0 / rate, self._tick)
 
     def _on_path(self, msg: Path) -> None:
+        # Any received path is a fresh inference result; mark it so _decide_cmd
+        # honors it verbatim rather than coasting on the held command.
+        self._path_new = True
         if msg.header.frame_id and msg.header.frame_id != self._expected_frame:
             if not self._frame_mismatch:
                 self.get_logger().warn(
@@ -96,6 +108,13 @@ class PathFollowerNode(Node):
         """
         cmd = self._pp.compute(robot=Pose2D(0.0, 0.0, 0.0), path=self._latest)
 
+        # Did a new path (a fresh inference result) arrive since the last tick?
+        # A fresh result is authoritative and is honored verbatim below, so new
+        # inferences are never masked by the hold latch. Consume the flag
+        # unconditionally, whichever branch we take.
+        fresh = self._path_new
+        self._path_new = False
+
         # A frame mismatch is a correctness fault, not a transient gap: stop
         # immediately and drop any held command (don't coast on a bad target).
         if self._frame_mismatch:
@@ -104,14 +123,24 @@ class PathFollowerNode(Node):
             return cmd
 
         if abs(cmd.linear) > self._cmd_eps or abs(cmd.angular) > self._cmd_eps:
-            # Fresh moving command: use it and latch it for the hold window.
+            # Moving command: use it and latch it for the hold window.
             self._held_cmd = cmd
             self._held_at = now
             return cmd
 
-        # Freshly computed command is zero (empty path / pure-pursuit stop). If
-        # we're still within the hold window, maintain the last moving command
-        # so motion doesn't stutter between inferences; otherwise safe-stop.
+        # Freshly computed command is zero (empty path / pure-pursuit stop).
+        if fresh:
+            # A NEW inference explicitly yields a stop. Honor it now and drop
+            # the latch so the fresh result — not the stale moving command —
+            # controls the robot. This is what keeps new inferences from being
+            # overridden by an old cmd_vel.
+            self._held_cmd = None
+            self._held_at = None
+            return cmd
+
+        # No new path since the last tick: we're only re-evaluating the same
+        # path at the 20 Hz follower rate. Bridge that single-tick gap by
+        # holding the last moving command up to hold_timeout_sec, else stop.
         if (
             self._hold_timeout_ns > 0
             and self._held_cmd is not None
