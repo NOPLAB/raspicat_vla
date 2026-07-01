@@ -328,6 +328,7 @@ _run_edge_launch() {
         source_real_ws="source /opt/real_ws/install/setup.bash"
     fi
     docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
+        -e RASPICAT_VLA_REBUILD \
         --network host \
         -v "$REPO_ROOT:/workspace" \
         -v "$HF_CACHE_DIR:/tmp/.cache/huggingface" \
@@ -390,6 +391,7 @@ run_sim() {
         # Fallback: edge_only without Gazebo.
         log "${model} edge (sim-fallback, image=${image}); cloud=${host}:${port}"
         docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
+            -e RASPICAT_VLA_REBUILD \
             --network host \
             -v "$REPO_ROOT:/workspace" \
             -v "$HF_CACHE_DIR:/tmp/.cache/huggingface" \
