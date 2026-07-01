@@ -82,7 +82,8 @@ Commands:
                                     no cloud, just edge node + follower
                                     (mvp_omnivla_edge.launch.py). Requires CUDA
                                     and models/omnivla-edge/omnivla-edge.pth.
-                                    Uses Dockerfile.real with --gpus all.
+                                    Uses Dockerfile.real; GPU via --gpus all
+                                    (x86) or --runtime nvidia (Jetson/L4T).
   test [PYTEST_ARGS...]   Run pytest in raspicat-vla-test (CPU). Auto-builds
                           the image if missing. Pass extra args to pytest:
                             run.sh test                        # full suite
@@ -398,8 +399,14 @@ run_edge_local() {
     warn "Dockerfile.real ships CPU torch; on a GPU host, rebuild it with a CUDA torch wheel."
     warn "Needs weights at models/omnivla-edge/omnivla-edge.pth (scripts/download_omnivla_edge_checkpoints.sh)."
     mkdir -p "${HOME}/.cache/clip"
-    log "omnivla_edge edge-local (image=${image}, --gpus all); standalone edge + follower"
-    docker run --rm --gpus all --user "$(id -u):$(id -g)" -e HOME=/tmp \
+    # x86 exposes the GPU via the nvidia-container-toolkit's `--gpus all`; Jetson/L4T
+    # exposes the iGPU through the nvidia container runtime instead (`--gpus all`
+    # invokes the prestart hook directly there and fails). Mirror run_remote().
+    local gpu_flag="--gpus all"
+    is_jetson && gpu_flag="--runtime nvidia"
+    log "omnivla_edge edge-local (image=${image}, ${gpu_flag}); standalone edge + follower"
+    # shellcheck disable=SC2086
+    docker run --rm $gpu_flag --user "$(id -u):$(id -g)" -e HOME=/tmp \
         --network host \
         -v "$REPO_ROOT:/workspace" \
         -v "$HF_CACHE_DIR:/tmp/.cache/huggingface" \
