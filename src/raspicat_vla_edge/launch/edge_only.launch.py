@@ -104,8 +104,11 @@ def generate_launch_description():
     # Optional camera driver, selected by camera_kind (empty = none). Both
     # variants are remapped to publish raw sensor_msgs/Image on image_topic.
     #  - v4l2:      generic UVC/USB webcam on camera_device (output 'image_raw').
-    #  - realsense: Intel RealSense; realsense2_camera publishes its color stream
-    #               on the relative topic 'color/image_raw'.
+    #  - realsense: Intel RealSense; realsense2_camera prefixes its topics with the
+    #               node name, so the color stream is published on the fully
+    #               qualified '/camera/color/image_raw' (NOT the relative
+    #               'color/image_raw' — a relative remap FROM expands under the
+    #               '' namespace to '/color/image_raw' and silently never matches).
     camera_v4l2 = Node(
         package='v4l2_camera',
         executable='v4l2_camera_node',
@@ -121,7 +124,7 @@ def generate_launch_description():
         name='camera',
         namespace='',
         output='screen',
-        remappings=[('color/image_raw', image_topic)],
+        remappings=[('/camera/color/image_raw', image_topic)],
         condition=LaunchConfigurationEquals('camera_kind', 'realsense'),
     )
 
