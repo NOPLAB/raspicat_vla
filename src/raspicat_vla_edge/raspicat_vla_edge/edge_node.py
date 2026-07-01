@@ -375,8 +375,12 @@ class VLAEdgeNode(LifecycleNode):
         """Publish a Path. Plan 1 stub: straight-ahead path of 1.0 m.
 
         Status-aware: WAITING_REMOTE / STALE → publish empty path so the
-        follower outputs zero Twist (safe-stop). DEGRADED is treated as
-        usable but logged.
+        follower stops driving. DEGRADED is treated as usable but logged.
+
+        Note: the follower holds the last moving command for its
+        ``hold_timeout_sec`` before zeroing (path_follower_node), so a *brief*
+        empty-path gap coasts rather than hard-stopping; a sustained one still
+        safe-stops.
         """
         if self._path_pub is None or self._adapter is None:
             return
