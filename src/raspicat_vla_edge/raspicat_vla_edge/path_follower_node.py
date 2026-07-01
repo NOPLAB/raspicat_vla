@@ -1,4 +1,4 @@
-"""ROS2 wrapper around PurePursuit: subscribe to Path, publish Twist."""
+"""ROS2 wrapper around WaypointPD: subscribe to Path, publish Twist."""
 from __future__ import annotations
 
 from typing import List, Optional
@@ -8,14 +8,21 @@ from geometry_msgs.msg import Twist
 from nav_msgs.msg import Path
 from rclpy.node import Node
 
-from .pure_pursuit import PurePursuit, Pose2D, TwistCmd, Waypoint
+from .pure_pursuit import TwistCmd
+from .waypoint_pd import PathPoint, WaypointPD
 
 
 class PathFollowerNode(Node):
 
     def __init__(self) -> None:
         super().__init__('path_follower_node')
-        self.declare_parameter('lookahead', 0.4)
+        # Steering law: OmniVLA-edge's single-waypoint PD (waypoint_pd.py), used
+        # for every backend. Pure Pursuit under-steers on the long-horizon paths
+        # these policies emit (waypoints reach several metres ahead), so we pick
+        # a waypoint a fixed number of steps ahead and drive a proportional law
+        # whose gain comes from the heading to it, not a vanishing curvature.
+        self.declare_parameter('waypoint_select', 4)
+        self.declare_parameter('control_dt', 1.0 / 3.0)
         self.declare_parameter('max_v', 0.4)
         self.declare_parameter('max_w', 1.0)
         self.declare_parameter('rate_hz', 20.0)
@@ -44,17 +51,17 @@ class PathFollowerNode(Node):
         # exceeds this. Below it we treat the command as a stop.
         self.declare_parameter('cmd_epsilon', 1e-3)
 
-        self._pp = PurePursuit(
-            lookahead=float(self.get_parameter('lookahead').value),
+        self._pp = WaypointPD(
             max_v=float(self.get_parameter('max_v').value),
             max_w=float(self.get_parameter('max_w').value),
-            no_backward=True,
+            waypoint_select=int(self.get_parameter('waypoint_select').value),
+            dt=float(self.get_parameter('control_dt').value),
         )
         self._expected_frame: str = str(self.get_parameter('expected_frame').value)
         self._hold_timeout_ns: int = int(
             float(self.get_parameter('hold_timeout_sec').value) * 1e9)
         self._cmd_eps: float = float(self.get_parameter('cmd_epsilon').value)
-        self._latest: List[Waypoint] = []
+        self._latest: List[PathPoint] = []
         self._frame_mismatch: bool = False
         # Set by _on_path whenever a new Path (a fresh inference result) lands;
         # consumed by _decide_cmd. A fresh result is authoritative and bypasses
@@ -88,9 +95,16 @@ class PathFollowerNode(Node):
             self._latest = []
             return
         self._frame_mismatch = False
-        wps: List[Waypoint] = []
+        wps: List[PathPoint] = []
         for ps in msg.poses:
-            wps.append(Waypoint(x=ps.pose.position.x, y=ps.pose.position.y))
+            # Heading is a yaw-only quaternion (w=cos, z=sin); carry it so the
+            # controller can rotate in place when the target sits on the robot.
+            wps.append(PathPoint(
+                x=ps.pose.position.x,
+                y=ps.pose.position.y,
+                cos=ps.pose.orientation.w,
+                sin=ps.pose.orientation.z,
+            ))
         self._latest = wps
 
     def _tick(self) -> None:
@@ -106,7 +120,7 @@ class PathFollowerNode(Node):
         Pure w.r.t. ROS I/O (takes ``now``, mutates only the latch state) so the
         stop-go smoothing is unit-testable without a running executor.
         """
-        cmd = self._pp.compute(robot=Pose2D(0.0, 0.0, 0.0), path=self._latest)
+        cmd = self._pp.compute(path=self._latest)
 
         # Did a new path (a fresh inference result) arrive since the last tick?
         # A fresh result is authoritative and is honored verbatim below, so new

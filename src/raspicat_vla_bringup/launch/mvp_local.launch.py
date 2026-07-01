@@ -62,7 +62,7 @@ def generate_launch_description():
         name='path_follower_node',
         output='screen',
         parameters=[{
-            'lookahead': 0.4, 'max_v': 0.4, 'max_w': 1.0, 'rate_hz': 20.0,
+            'max_v': 0.4, 'max_w': 1.0, 'rate_hz': 20.0,
         }],
     )
 
