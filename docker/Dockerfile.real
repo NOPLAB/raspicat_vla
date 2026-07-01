@@ -39,6 +39,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ros-humble-diagnostic-msgs \
         ros-humble-lifecycle-msgs \
         ros-humble-v4l2-camera \
+        ros-humble-realsense2-camera \
         sudo \
         vim \
         wget \

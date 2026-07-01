@@ -17,9 +17,10 @@
   <exec_depend>diagnostic_msgs</exec_depend>
   <exec_depend>lifecycle_msgs</exec_depend>
   <exec_depend>cv_bridge</exec_depend>
-  <!-- Optional v4l2 camera driver, launched by edge_only.launch.py when
-       camera_device is set. -->
+  <!-- Optional camera drivers, launched by edge_only.launch.py when
+       camera_kind is set (v4l2 = webcam, realsense = Intel RealSense). -->
   <exec_depend>v4l2_camera</exec_depend>
+  <exec_depend>realsense2_camera</exec_depend>
   <exec_depend>raspicat_vla_msgs</exec_depend>
   <exec_depend>raspicat_vla_proto</exec_depend>
 

@@ -21,10 +21,10 @@ from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument, EmitEvent, RegisterEventHandler,
 )
-from launch.conditions import IfCondition
+from launch.conditions import LaunchConfigurationEquals
 from launch.event_handlers import OnProcessStart
 from launch.events import matches_action
-from launch.substitutions import LaunchConfiguration, PythonExpression
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import LifecycleNode, Node
 from launch_ros.event_handlers import OnStateTransition
 from launch_ros.events.lifecycle import ChangeState
@@ -74,16 +74,25 @@ def generate_launch_description():
         }],
     )
 
-    # Optional v4l2 camera driver (see edge_only.launch.py). Only launched when
-    # camera_device is non-empty; publishes raw frames on image_topic.
-    camera = Node(
+    # Optional camera driver (see edge_only.launch.py), selected by camera_kind.
+    # Both variants publish raw frames on image_topic.
+    camera_v4l2 = Node(
         package='v4l2_camera',
         executable='v4l2_camera_node',
         name='camera',
         output='screen',
         parameters=[{'video_device': camera_device}],
         remappings=[('image_raw', image_topic)],
-        condition=IfCondition(PythonExpression(["'", camera_device, "' != ''"])),
+        condition=LaunchConfigurationEquals('camera_kind', 'v4l2'),
+    )
+    camera_realsense = Node(
+        package='realsense2_camera',
+        executable='realsense2_camera_node',
+        name='camera',
+        namespace='',
+        output='screen',
+        remappings=[('color/image_raw', image_topic)],
+        condition=LaunchConfigurationEquals('camera_kind', 'realsense'),
     )
 
     return LaunchDescription([
@@ -92,6 +101,7 @@ def generate_launch_description():
             default_value='/workspace/models/omnivla-edge/omnivla-edge.pth'),
         DeclareLaunchArgument('device', default_value='cuda:0'),
         DeclareLaunchArgument('image_topic', default_value='/camera/image_raw'),
+        DeclareLaunchArgument('camera_kind', default_value=''),
         DeclareLaunchArgument('camera_device', default_value=''),
         edge,
         RegisterEventHandler(OnProcessStart(target_action=edge, on_start=[configure])),
@@ -99,5 +109,6 @@ def generate_launch_description():
             target_lifecycle_node=edge, goal_state='inactive', entities=[activate],
         )),
         follower,
-        camera,
+        camera_v4l2,
+        camera_realsense,
     ])

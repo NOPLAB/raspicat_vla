@@ -4,9 +4,12 @@ Optional launch args (override edge_params.yaml):
   remote_address  - gRPC server address (default: from yaml, typically localhost:50051)
   adapter_kind    - stub|asyncvla|omnivla
   image_topic     - camera image topic (default: /camera/image_raw; raspicat_sim uses /camera/color/image_raw)
-  camera_device   - v4l2 device path (e.g. /dev/video0); when set, a v4l2_camera
-                    node is launched and remapped to publish on image_topic.
-                    Empty (default) = no camera node (frames come from elsewhere).
+  camera_kind     - ''|v4l2|realsense. Empty (default) = no camera node (frames
+                    come from elsewhere). v4l2 launches a v4l2_camera node on
+                    camera_device; realsense launches a realsense2_camera node.
+                    Either is remapped to publish on image_topic.
+  camera_device   - v4l2 device path (e.g. /dev/video0); only used when
+                    camera_kind=v4l2.
   with_follower   - true|false (also bring up path_follower_node)
   cmd_vel_topic   - follower's Twist output topic (default: /cmd_vel; set to a
                     non-motor topic like /cmd_vel_vla to run without driving the robot)
@@ -22,10 +25,10 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, EmitEvent, RegisterEventHandler
-from launch.conditions import IfCondition
+from launch.conditions import IfCondition, LaunchConfigurationEquals
 from launch.event_handlers import OnProcessStart
 from launch.events import matches_action
-from launch.substitutions import LaunchConfiguration, PythonExpression
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import LifecycleNode, Node
 from launch_ros.event_handlers import OnStateTransition
 from launch_ros.events.lifecycle import ChangeState
@@ -98,23 +101,35 @@ def generate_launch_description():
         condition=IfCondition(with_follower),
     )
 
-    # Optional v4l2 camera driver. Only launched when camera_device is non-empty;
-    # publishes raw sensor_msgs/Image on image_topic (v4l2_camera's own default
-    # output is 'image_raw', remapped here to the edge node's image_topic).
-    camera = Node(
+    # Optional camera driver, selected by camera_kind (empty = none). Both
+    # variants are remapped to publish raw sensor_msgs/Image on image_topic.
+    #  - v4l2:      generic UVC/USB webcam on camera_device (output 'image_raw').
+    #  - realsense: Intel RealSense; realsense2_camera publishes its color stream
+    #               on the relative topic 'color/image_raw'.
+    camera_v4l2 = Node(
         package='v4l2_camera',
         executable='v4l2_camera_node',
         name='camera',
         output='screen',
         parameters=[{'video_device': camera_device}],
         remappings=[('image_raw', image_topic)],
-        condition=IfCondition(PythonExpression(["'", camera_device, "' != ''"])),
+        condition=LaunchConfigurationEquals('camera_kind', 'v4l2'),
+    )
+    camera_realsense = Node(
+        package='realsense2_camera',
+        executable='realsense2_camera_node',
+        name='camera',
+        namespace='',
+        output='screen',
+        remappings=[('color/image_raw', image_topic)],
+        condition=LaunchConfigurationEquals('camera_kind', 'realsense'),
     )
 
     return LaunchDescription([
         DeclareLaunchArgument('remote_address', default_value='localhost:50051'),
         DeclareLaunchArgument('adapter_kind', default_value='stub'),
         DeclareLaunchArgument('image_topic', default_value='/camera/image_raw'),
+        DeclareLaunchArgument('camera_kind', default_value=''),
         DeclareLaunchArgument('camera_device', default_value=''),
         DeclareLaunchArgument('with_follower', default_value='false'),
         DeclareLaunchArgument('cmd_vel_topic', default_value='/cmd_vel'),
@@ -125,5 +140,6 @@ def generate_launch_description():
         on_started,
         on_inactive,
         follower,
-        camera,
+        camera_v4l2,
+        camera_realsense,
     ])
