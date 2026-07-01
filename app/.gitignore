@@ -43,3 +43,7 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Phase 1 で生成する巨大な ONNX / CLIP 語彙 (重みと同様に非追跡)
+assets/models/*.onnx
+assets/clip/*.txt.gz

@@ -97,12 +97,17 @@ class OmniVlaEngine {
     if (text == _textCacheKey && _textCacheFeat != null) {
       return _textCacheFeat!;
     }
-    Float32List feat;
-    final tokens = _tokenizer.tokenize(text.isEmpty ? 'xxxx' : text);
-    final encoded = _runner.encodeText(tokens);
-    feat = (encoded != null && encoded.length == OmniVlaConfig.clipTextDim)
-        ? encoded
-        : Float32List(OmniVlaConfig.clipTextDim); // 未配置時はゼロ
+    Float32List feat = Float32List(OmniVlaConfig.clipTextDim); // 既定ゼロ
+    if (_tokenizer.ready) {
+      final tokens = _tokenizer.tokenize(text.isEmpty ? 'xxxx' : text);
+      // EOT トークンの位置 (ArgMax の代替として ONNX に渡す)。
+      var eotIndex = tokens.indexOf(_tokenizer.eotToken);
+      if (eotIndex < 0) eotIndex = tokens.length - 1;
+      final encoded = _runner.encodeText(tokens, eotIndex);
+      if (encoded != null && encoded.length == OmniVlaConfig.clipTextDim) {
+        feat = encoded;
+      }
+    }
     _textCacheKey = text;
     _textCacheFeat = feat;
     return feat;

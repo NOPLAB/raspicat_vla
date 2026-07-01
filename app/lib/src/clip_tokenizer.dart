@@ -30,6 +30,9 @@ class ClipTokenizer {
 
   bool get ready => _ready;
 
+  /// EOT トークン id (語彙ロード済みなら実値、未ロード時は CLIP 既定 49407)。
+  int get eotToken => _ready ? _eot : 49407;
+
   /// CLIP の単語分割パターン (unicode 対応)。
   static final RegExp _pat = RegExp(
     r"<\|startoftext\|>|<\|endoftext\|>|'s|'t|'re|'ve|'m|'ll|'d|[\p{L}]+|[\p{N}]|[^\s\p{L}\p{N}]+",
@@ -50,9 +53,10 @@ class ClipTokenizer {
   }
 
   void _build(String vocabText) {
-    // merges: 1 行目のヘッダを飛ばし 49152-256-2+1 個を採用。
+    // OpenAI CLIP と同じく merges[1 : 49152-256-2+1] を採用 = 48894 要素。
+    // (skip(1) 後の take は要素数なので end(48895) - start(1) = 48894 個)。
     final lines = const LineSplitter().convert(vocabText);
-    final numMerges = 49152 - 256 - 2 + 1;
+    final numMerges = (49152 - 256 - 2 + 1) - 1; // 48894
     final merges = lines.skip(1).take(numMerges).toList();
 
     final vocab = <String>[];

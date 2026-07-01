@@ -47,6 +47,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   int _frameId = 0;
   int _lastLatencyMs = 0;
   String _error = '';
+  String _tickError = '';
+  bool _engineReady = false;
   String _engineStatus = '初期化中';
 
   @override
@@ -58,12 +60,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Future<void> _init() async {
     await _engine.init();
+    _engineReady = true;
     setState(() {
       _engineStatus = _engine.modelAvailable
           ? 'ONNX (text=${_engine.textEncoderReady ? "有" : "無"})'
           : 'ダミー (ONNX未配置)';
     });
+    await _startCamera();
+  }
 
+  /// カメラのみ起動 (モデルは _init で 1 度だけロード済み)。resume 時にも呼ぶ。
+  Future<void> _startCamera() async {
     if (widget.cameras.isEmpty) {
       setState(() => _error = 'カメラが見つかりません');
       return;
@@ -78,23 +85,38 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       (c) => c.lensDirection == CameraLensDirection.back,
       orElse: () => widget.cameras.first,
     );
-    final controller = CameraController(
-      back,
-      ResolutionPreset.medium,
-      enableAudio: false,
-      imageFormatGroup: ImageFormatGroup.yuv420,
-    );
-    try {
-      await controller.initialize();
-      await controller.startImageStream((image) => _latestCameraImage = image);
-    } catch (e) {
-      setState(() => _error = 'カメラ初期化失敗: $e');
-      return;
+    // 一部端末 (CameraX) は Preview+ImageCapture+ImageAnalysis の 3 ストリームを
+    // 高解像度で同時に張れず "too many use cases" になる。低解像度から試して
+    // 段階的にフォールバックする。
+    CameraController? controller;
+    for (final preset in [ResolutionPreset.low, ResolutionPreset.medium]) {
+      final c = CameraController(
+        back,
+        preset,
+        enableAudio: false,
+        imageFormatGroup: ImageFormatGroup.yuv420,
+      );
+      try {
+        await c.initialize();
+        await c.startImageStream((image) => _latestCameraImage = image);
+        controller = c;
+        break;
+      } catch (e) {
+        await c.dispose();
+        if (preset == ResolutionPreset.medium) {
+          setState(() => _error = 'カメラ初期化失敗: $e');
+          return;
+        }
+      }
     }
-    if (!mounted) return;
-    setState(() => _controller = controller);
+    if (!mounted || controller == null) return;
+    setState(() {
+      _error = '';
+      _controller = controller;
+    });
 
-    _loop = Timer.periodic(
+    // タイマは 1 本だけ (resume での重複起動を防ぐ)。
+    _loop ??= Timer.periodic(
       Duration(milliseconds: (1000 / _obsRateHz).round()),
       (_) => _tick(),
     );
@@ -118,10 +140,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         setState(() {
           _chunk = chunk;
           _lastLatencyMs = sw.elapsedMilliseconds;
+          _tickError = '';
         });
       }
     } catch (e) {
-      if (mounted) setState(() => _error = '推論エラー: $e');
+      // 推論の一時エラーで画面全体を潰さない (カメラは出したまま status に表示)。
+      if (mounted) setState(() => _tickError = '推論エラー: $e');
     } finally {
       _busy = false;
     }
@@ -145,12 +169,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    final c = _controller;
-    if (c == null || !c.value.isInitialized) return;
-    if (state == AppLifecycleState.inactive) {
-      c.dispose();
+    if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused) {
+      // 画面 OFF 等ではカメラだけ解放 (モデルは保持)。
+      _controller?.dispose();
+      if (mounted) setState(() => _controller = null);
     } else if (state == AppLifecycleState.resumed) {
-      _init();
+      // resume 時はカメラのみ再開。モデルの再ロードはしない (470MB, 高コスト)。
+      if (_controller == null && _error.isEmpty && _engineReady) {
+        _startCamera();
+      }
     }
   }
 
@@ -255,6 +282,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             Text('エンジン: $_engineStatus   推論: ${_lastLatencyMs}ms'),
             Text('ゴール: ${_goal?.id ?? "未設定"}'),
             Text('送信: ${_sender.status}'),
+            if (_tickError.isNotEmpty)
+              Text(_tickError, style: const TextStyle(color: Color(0xFFFF8A80))),
           ],
         ),
       ),

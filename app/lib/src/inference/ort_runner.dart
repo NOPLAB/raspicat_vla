@@ -29,6 +29,7 @@ const _modelInputNames = (
 const _modelAsset = 'assets/models/omnivla_edge.onnx';
 const _textAsset = 'assets/models/clip_text.onnx';
 const _textInputName = 'tokens';
+const _eotInputName = 'eot_index';
 
 class OrtRunner {
   OrtSession? _model;
@@ -43,28 +44,43 @@ class OrtRunner {
     _text = await _tryLoad(_textAsset);
   }
 
+  /// ロード失敗の理由 (UI/診断用)。
+  String lastError = '';
+
   Future<OrtSession?> _tryLoad(String asset) async {
     try {
       final raw = await rootBundle.load(asset);
       final bytes = raw.buffer.asUint8List(raw.offsetInBytes, raw.lengthInBytes);
       return OrtSession.fromBuffer(bytes, OrtSessionOptions());
-    } catch (_) {
+    } catch (e) {
       // 未配置 or ロード失敗。フォールバックへ。
+      lastError = '$asset: $e';
+      // ignore: avoid_print
+      print('[OrtRunner] load failed $lastError');
       return null;
     }
   }
 
-  /// CLIP トークン列 (長さ 77) を 512 次元特徴へ。未ロード時は null。
-  Float32List? encodeText(Int32List tokens) {
+  /// CLIP トークン列 (長さ 77) を 512 次元特徴へ。[eotIndex] は EOT トークンの
+  /// 位置 (argmax の代替。モバイル ORT に ArgMax が無いため外から渡す)。未ロード時 null。
+  Float32List? encodeText(Int32List tokens, int eotIndex) {
     final session = _text;
     if (session == null) return null;
+    // ONNX の tokens 入力は int64。Int32List のままだと型不一致で失敗する。
     final input = OrtValueTensor.createTensorWithDataList(
-      tokens,
+      Int64List.fromList(tokens),
       [1, OmniVlaConfig.clipContextLength],
+    );
+    final eot = OrtValueTensor.createTensorWithDataList(
+      Int64List.fromList([eotIndex]),
+      [1],
     );
     final runOptions = OrtRunOptions();
     try {
-      final outputs = session.run(runOptions, {_textInputName: input});
+      final outputs = session.run(
+        runOptions,
+        {_textInputName: input, _eotInputName: eot},
+      );
       final flat = _flattenToFloat32(outputs.first?.value);
       for (final o in outputs) {
         o?.release();
@@ -72,6 +88,7 @@ class OrtRunner {
       return flat;
     } finally {
       input.release();
+      eot.release();
       runOptions.release();
     }
   }
