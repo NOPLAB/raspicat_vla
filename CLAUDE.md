@@ -59,17 +59,24 @@ python3 tools/publish_fake_image.py   # inject a frame so something flows
 ```bash
 docker/run.sh build TARGET           # asyncvla|omnivla|test|real|sim|--all
                                      #   | asyncvla-jetson|omnivla-jetson (ARM64)
-docker/run.sh run MODEL MODE [OPTS]  # MODEL = asyncvla|omnivla|omnivla_edge
-                                     # MODE  = --remote {--cpu|--gpu} [--host BIND[:PORT]]
-                                     #       | --real --host HOST[:PORT]
-                                     #       | --sim  --host HOST[:PORT]
-                                     #       | --edge-local   (omnivla_edge only)
+docker/run.sh run MODEL --mode MODE [OPTS]
+                                     # MODEL = asyncvla|omnivla|omnivla_edge
+                                     # MODE (via --mode):
+                                     #   remote  {--cpu|--gpu} [--host BIND[:PORT]]
+                                     #   edge    --host HOST[:PORT]
+                                     #   cmd_vel {--cpu|--gpu}   (remote+edge here, no motors)
+                                     #   sim     --host HOST[:PORT]
+                                     #   edge-local              (omnivla_edge only)
 docker/run.sh test [PYTEST_ARGS...]  # full pytest in the test image
 ```
 
-`--edge-local` is Plan 2B Path 2: run the OmniVLA-edge policy standalone **on the robot** (edge node + follower, `mvp_omnivla_edge.launch.py`, no cloud server). Needs CUDA and `models/omnivla-edge/omnivla-edge.pth`.
+Mode selection is `--mode <value>` (not one flag per mode). `edge` is the on-robot edge stack talking to a remote server (formerly `--real`).
 
-**Jetson AGX Orin (ARM64).** On an `aarch64` host `run.sh` auto-selects the `*-jetson` remote images and swaps `--gpus all` for `--runtime nvidia`. Build/run on-device with `build omnivla-jetson` / `run omnivla --remote --gpu`. Match the image to your JetPack via the `L4T_BASE`/`TORCH_VERSION` build args (see the Dockerfile header). Force/disable Jetson mode with `RASPICAT_VLA_JETSON=1`/`=0`. See `run.sh` `usage()` for the authoritative flag reference.
+`--mode cmd_vel` is a single-host, no-real-robot bring-up: **one command starts two containers** — the remote server (bound to `127.0.0.1`) and the edge stack — and the follower publishes to a **non-motor topic** (`/cmd_vel_vla`, via `cmd_vel.launch.py`) so the full observation→gRPC→embedding→path→cmd_vel pipeline runs and is observable (`ros2 topic echo /cmd_vel_vla`) without driving the robot's motors. The server is detached and torn down on exit. Feed frames with `tools/publish_fake_image.py` or a real camera.
+
+`--mode edge-local` is Plan 2B Path 2: run the OmniVLA-edge policy standalone **on the robot** (edge node + follower, `mvp_omnivla_edge.launch.py`, no cloud server). Needs CUDA and `models/omnivla-edge/omnivla-edge.pth`.
+
+**Jetson AGX Orin (ARM64).** On an `aarch64` host `run.sh` auto-selects the `*-jetson` remote images and swaps `--gpus all` for `--runtime nvidia`. Build/run on-device with `build omnivla-jetson` / `run omnivla --mode remote --gpu`. Match the image to your JetPack via the `L4T_BASE`/`TORCH_VERSION` build args (see the Dockerfile header). Force/disable Jetson mode with `RASPICAT_VLA_JETSON=1`/`=0`. See `run.sh` `usage()` for the authoritative flag reference.
 
 `run.sh test` rebuilds the test image on demand and **passes explicit test-file paths to pytest** because ROS2's `launch_testing` plugin claims directories and silently drops their tests. If you add a new `test_*.py`, the default-paths discovery (find -path `*/test/test_*.py`) will pick it up automatically; if you invoke pytest with bare flags (`-k foo`), `run.sh` still prepends the default paths so cwd discovery doesn't walk `external/` and crash.
 

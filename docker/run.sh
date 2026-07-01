@@ -3,11 +3,13 @@
 #
 # Subcommands:
 #   build TARGET            asyncvla | omnivla | test | real | sim | --all
-#   run MODEL MODE [OPTS]   MODEL = asyncvla | omnivla | omnivla_edge
-#                           MODE  = --remote {--cpu|--gpu}
-#                                   --real --host HOST
-#                                   --sim --host HOST
-#                                   --edge-local            (omnivla_edge only)
+#   run MODEL --mode MODE [OPTS]
+#                           MODEL = asyncvla | omnivla | omnivla_edge
+#                           MODE  = remote {--cpu|--gpu} [--host BIND[:PORT]]
+#                                   edge --host HOST[:PORT]
+#                                   cmd_vel {--cpu|--gpu}   (remote+edge, no motors)
+#                                   sim  --host HOST[:PORT]
+#                                   edge-local              (omnivla_edge only)
 #
 # Run `run.sh --help` for the full reference.
 set -euo pipefail
@@ -71,20 +73,29 @@ Commands:
   build TARGET            Build a Docker image
     TARGET = asyncvla | omnivla | test | real | sim | --all
              asyncvla-jetson | omnivla-jetson   (ARM64 / Jetson AGX Orin)
-  run MODEL MODE [OPTS]   Run a configuration
+  run MODEL --mode MODE [OPTS]   Run a configuration
     MODEL = asyncvla | omnivla | omnivla_edge
-    MODE:
-      --remote {--cpu|--gpu} [--host BIND[:PORT]]
+    MODE (selected with --mode MODE):
+      remote {--cpu|--gpu} [--host BIND[:PORT]]
                                     Host the cloud-side gRPC server here.
                                     Uses Dockerfile.<MODEL>. BIND defaults to
                                     0.0.0.0 (all interfaces). Optional :PORT
                                     overrides $GRPC_PORT.
-      --real --host HOST[:PORT]     Edge stack here, talking to a cloud server
+      edge --host HOST[:PORT]       Edge stack here, talking to a cloud server
                                     at HOST:PORT (PORT defaults to $GRPC_PORT).
                                     Uses Dockerfile.real.
-      --sim  --host HOST[:PORT]     Edge + Gazebo simulation, cloud at
+      cmd_vel {--cpu|--gpu}         All-in-one on THIS host, no real robot: one
+                                    command starts BOTH the remote server (bound
+                                    to 127.0.0.1) and the edge stack, in two
+                                    containers. The follower publishes to a
+                                    non-motor topic (/cmd_vel_vla), so the whole
+                                    pipeline runs and cmd_vel is observable
+                                    (ros2 topic echo /cmd_vel_vla) without driving
+                                    the robot's motors. Feed frames with
+                                    tools/publish_fake_image.py or a real camera.
+      sim  --host HOST[:PORT]       Edge + Gazebo simulation, cloud at
                                     HOST:PORT. Uses Dockerfile.sim. Plan 3 wip.
-      --edge-local                  Plan 2B Path 2 (omnivla_edge ONLY): run the
+      edge-local                    Plan 2B Path 2 (omnivla_edge ONLY): run the
                                     OmniVLA-edge policy ON the edge, standalone —
                                     no cloud, just edge node + follower
                                     (mvp_omnivla_edge.launch.py). Requires CUDA
@@ -93,10 +104,10 @@ Commands:
                                     (x86) or --runtime nvidia (Jetson/L4T).
 
     omnivla_edge modes (Plan 2B Path 3 — remote split, "Jetson infers, Pi
-    controls"): --remote runs the OmniVLA-edge policy on this GPU box (the
-    omnivla image + omnivla-edge.pth); the Pi side runs --real/--sim with the
+    controls"): --mode remote runs the OmniVLA-edge policy on this GPU box (the
+    omnivla image + omnivla-edge.pth); the Pi side runs --mode edge/sim with the
     light path-only adapter (adapter_kind=omnivla, no torch). Path 2's
-    --edge-local runs the whole thing on one CUDA box instead.
+    --mode edge-local runs the whole thing on one CUDA box instead.
   test [PYTEST_ARGS...]   Run pytest in raspicat-vla-test (CPU). Auto-builds
                           the image if missing. Pass extra args to pytest:
                             run.sh test                        # full suite
@@ -107,16 +118,17 @@ Commands:
 Examples:
   run.sh build asyncvla
   run.sh build --all
-  run.sh run asyncvla --remote --gpu                       # bind 0.0.0.0:50051
-  run.sh run asyncvla --remote --gpu --host :8080          # bind 0.0.0.0:8080
-  run.sh run asyncvla --remote --cpu --host 127.0.0.1      # localhost only
-  run.sh run omnivla  --remote --gpu --host 10.0.0.5:9000  # specific NIC + port
-  run.sh run asyncvla --real --host 192.168.1.2            # default port
-  run.sh run asyncvla --real --host 192.168.1.2:8080
-  run.sh run omnivla  --sim  --host 192.168.1.2:9000
-  run.sh run omnivla_edge --edge-local                     # Path 2, standalone on-edge policy (GPU)
-  run.sh run omnivla_edge --remote --gpu                   # Path 3, OmniVLA-edge server (Jetson)
-  run.sh run omnivla_edge --real --host 192.168.1.2        # Path 3, Pi edge -> Jetson server
+  run.sh run asyncvla --mode remote --gpu                  # bind 0.0.0.0:50051
+  run.sh run asyncvla --mode remote --gpu --host :8080     # bind 0.0.0.0:8080
+  run.sh run asyncvla --mode remote --cpu --host 127.0.0.1 # localhost only
+  run.sh run omnivla  --mode remote --gpu --host 10.0.0.5:9000  # specific NIC + port
+  run.sh run asyncvla --mode edge --host 192.168.1.2       # default port
+  run.sh run asyncvla --mode edge --host 192.168.1.2:8080
+  run.sh run omnivla  --mode cmd_vel --gpu                 # remote+edge here, no motors
+  run.sh run omnivla  --mode sim  --host 192.168.1.2:9000
+  run.sh run omnivla_edge --mode edge-local               # Path 2, standalone on-edge policy (GPU)
+  run.sh run omnivla_edge --mode remote --gpu             # Path 3, OmniVLA-edge server (Jetson)
+  run.sh run omnivla_edge --mode edge --host 192.168.1.2  # Path 3, Pi edge -> Jetson server
   run.sh test                                              # full pytest suite
   run.sh test -k omnivla                                   # filter by name
 
@@ -124,7 +136,7 @@ Jetson AGX Orin (ARM64):
   On an aarch64 host this script auto-selects the *-jetson remote images and
   swaps `--gpus all` for `--runtime nvidia`. Build + run on the device:
     run.sh build omnivla-jetson
-    run.sh run omnivla --remote --gpu                # uses raspicat-vla-omnivla-jetson
+    run.sh run omnivla --mode remote --gpu           # uses raspicat-vla-omnivla-jetson
   Match the image to your JetPack via Docker build args (see the Dockerfile
   header), e.g.:
     docker build -f docker/Dockerfile.omnivla.jetson \
@@ -214,8 +226,14 @@ cmd_build() {
     esac
 }
 
-run_remote() {
+# Launch the cloud-side gRPC server container. Any args after the four fixed
+# ones are passed verbatim to `docker run` (e.g. `--rm` for a foreground run, or
+# `-d --rm --name X` to detach it — used by the cmd_vel mode). Shared by
+# run_remote (foreground) and run_cmd_vel (detached).
+_run_remote_server() {
     local model=$1 device=$2 bind_host=$3 bind_port=$4
+    shift 4
+    local docker_opts=("$@")
     local image="${IMAGES[$model]}"
     local resume_step="${RESUME_STEP[$model]}"
     local weights="${WEIGHTS_DIR[$model]}"
@@ -241,7 +259,7 @@ run_remote() {
     # layouts (setup.cfg uses `script_dir`), so `pip install -e` fails on modern
     # setuptools. Run from source via PYTHONPATH instead.
     # shellcheck disable=SC2086
-    docker run --rm $gpu_flag --network host \
+    docker run "${docker_opts[@]}" $gpu_flag --network host \
         -v "$REPO_ROOT:/workspace" \
         -v "$HF_CACHE_DIR:/root/.cache/huggingface" \
         "$image" bash -lc "
@@ -255,6 +273,11 @@ run_remote() {
                 --resume-step ${resume_step} \
                 --device ${device_arg}
         "
+}
+
+run_remote() {
+    local model=$1 device=$2 bind_host=$3 bind_port=$4
+    _run_remote_server "$model" "$device" "$bind_host" "$bind_port" --rm
 }
 
 # Build raspicat-vla packages inside the container (idempotent — colcon
@@ -281,11 +304,15 @@ edge_adapter_for() {
     if [[ $model == omnivla_edge ]]; then printf 'omnivla\n'; else printf '%s\n' "$model"; fi
 }
 
-run_real() {
-    local model=$1 host=$2 port=$3
+# Run the edge container (Dockerfile.real, falling back to the test image when
+# real isn't built). $1 = model (for the fallback warnings); the rest is the
+# `ros2 launch ...` argv to exec inside the container. Shared by run_edge and the
+# edge half of run_cmd_vel.
+_run_edge_launch() {
+    local model=$1
+    shift
+    local launch_argv=("$@")
     local image="${IMAGES[real]}"
-    local adapter_kind
-    adapter_kind=$(edge_adapter_for "$model")
     local has_real_image=true
     if ! docker image inspect "$image" >/dev/null 2>&1; then
         has_real_image=false
@@ -296,8 +323,6 @@ run_real() {
             warn "AsyncVLA edge needs torch + MBRA on PYTHONPATH; the test image lacks them."
         fi
     fi
-
-    log "${model} edge (real, image=${image}); cloud=${host}:${port}"
     local source_real_ws=""
     if $has_real_image; then
         source_real_ws="source /opt/real_ws/install/setup.bash"
@@ -311,11 +336,46 @@ run_real() {
             ${source_real_ws}
             cd /workspace
             $(_workspace_build_cmd)
-            exec ros2 launch raspicat_vla_edge edge_only.launch.py \
-                remote_address:=${host}:${port} \
-                adapter_kind:=${adapter_kind} \
-                with_follower:=true
+            exec ${launch_argv[*]}
         "
+}
+
+run_edge() {
+    local model=$1 host=$2 port=$3
+    local adapter_kind
+    adapter_kind=$(edge_adapter_for "$model")
+    log "${model} edge (real); cloud=${host}:${port}"
+    _run_edge_launch "$model" \
+        ros2 launch raspicat_vla_edge edge_only.launch.py \
+            "remote_address:=${host}:${port}" \
+            "adapter_kind:=${adapter_kind}" \
+            with_follower:=true
+}
+
+# cmd_vel mode: one command, two containers, no real robot. Start the remote
+# server detached (bound to 127.0.0.1) and the edge stack in the foreground; the
+# edge runs cmd_vel.launch.py, whose follower publishes to /cmd_vel_vla (a
+# non-motor topic) so the full pipeline runs and cmd_vel is observable without
+# driving the robot's motors. When the edge exits (or Ctrl-C), tear the server
+# down via the EXIT trap.
+run_cmd_vel() {
+    local model=$1 device=$2
+    local port="$GRPC_PORT"
+    local adapter_kind
+    adapter_kind=$(edge_adapter_for "$model")
+    local server_name="raspicat-vla-cmdvel-server-$$"
+
+    log "cmd_vel: launching ${model} remote server + edge on this host (motors NOT driven)"
+    # shellcheck disable=SC2064
+    trap "docker rm -f '${server_name}' >/dev/null 2>&1 || true" EXIT INT TERM
+    _run_remote_server "$model" "$device" "127.0.0.1" "$port" \
+        -d --rm --name "$server_name" >/dev/null
+
+    log "cmd_vel: edge -> 127.0.0.1:${port}; follower publishes /cmd_vel_vla (not /cmd_vel)"
+    _run_edge_launch "$model" \
+        ros2 launch raspicat_vla_bringup cmd_vel.launch.py \
+            "remote_address:=127.0.0.1:${port}" \
+            "adapter_kind:=${adapter_kind}"
 }
 
 run_sim() {
@@ -462,10 +522,17 @@ cmd_run() {
     local mode='' host='' device=''
     while [[ $# -gt 0 ]]; do
         case $1 in
-            --remote) mode=remote; shift ;;
-            --real)   mode=real; shift ;;
-            --sim)    mode=sim; shift ;;
-            --edge-local) mode=edge_local; shift ;;
+            --mode)
+                [[ $# -ge 2 ]] || { err "--mode requires an argument (remote|edge|cmd_vel|sim|edge-local)"; return 1; }
+                case $2 in
+                    remote)     mode=remote ;;
+                    edge)       mode=edge ;;
+                    cmd_vel)    mode=cmd_vel ;;
+                    sim)        mode=sim ;;
+                    edge-local) mode=edge_local ;;
+                    *) err "run: unknown mode '$2' (remote|edge|cmd_vel|sim|edge-local)"; return 1 ;;
+                esac
+                shift 2 ;;
             --host)
                 [[ $# -ge 2 ]] || { err "--host requires an argument"; return 1; }
                 host=$2; shift 2 ;;
@@ -476,37 +543,44 @@ cmd_run() {
         esac
     done
 
-    # --edge-local (Path 2, on-edge standalone policy) is only meaningful for
-    # omnivla_edge. omnivla_edge additionally supports --remote (Path 3 server on
-    # a GPU box / Jetson) and --real/--sim (the Pi-side edge, path-only adapter).
+    # --mode edge-local (Path 2, on-edge standalone policy) is only meaningful for
+    # omnivla_edge. omnivla_edge additionally supports --mode remote (Path 3 server
+    # on a GPU box / Jetson) and --mode edge/sim (the Pi-side edge, path-only adapter).
     if [[ $model != omnivla_edge && $mode == edge_local ]]; then
-        err "--edge-local is only valid for model omnivla_edge"; return 1
+        err "--mode edge-local is only valid for model omnivla_edge"; return 1
     fi
 
     case $mode in
         edge_local)
-            [[ -n $host ]] && warn "--host is ignored for --edge-local (standalone, no cloud)"
+            [[ -n $host ]] && warn "--host is ignored for --mode edge-local (standalone, no cloud)"
             run_edge_local
             ;;
         remote)
             if [[ -z $device ]]; then
-                err "--remote requires --cpu or --gpu"; return 1
+                err "--mode remote requires --cpu or --gpu"; return 1
             fi
             local pair bind_host bind_port
             pair=$(split_hostport "${host:-0.0.0.0}" "0.0.0.0" "$GRPC_PORT") || return 1
             read -r bind_host bind_port <<<"$pair"
             run_remote "$model" "$device" "$bind_host" "$bind_port"
             ;;
-        real|sim)
-            [[ -n $host ]] || { err "--$mode requires --host HOST[:PORT]"; return 1; }
+        cmd_vel)
+            if [[ -z $device ]]; then
+                err "--mode cmd_vel requires --cpu or --gpu (for the local remote server)"; return 1
+            fi
+            [[ -n $host ]] && warn "--host is ignored for --mode cmd_vel (server + edge both on 127.0.0.1)"
+            run_cmd_vel "$model" "$device"
+            ;;
+        edge|sim)
+            [[ -n $host ]] || { err "--mode $mode requires --host HOST[:PORT]"; return 1; }
             local pair edge_host edge_port
             pair=$(split_hostport "$host" "" "$GRPC_PORT") || return 1
             read -r edge_host edge_port <<<"$pair"
-            [[ -n $edge_host ]] || { err "--$mode --host needs a host part"; return 1; }
+            [[ -n $edge_host ]] || { err "--mode $mode --host needs a host part"; return 1; }
             "run_$mode" "$model" "$edge_host" "$edge_port"
             ;;
         '')
-            err "run: missing mode (--remote|--real|--sim)"; usage; return 1 ;;
+            err "run: missing --mode (remote|edge|cmd_vel|sim|edge-local)"; usage; return 1 ;;
     esac
 }
 
