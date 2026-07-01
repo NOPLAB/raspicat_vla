@@ -30,6 +30,10 @@
 # is still honoured for backward compatibility). If a ROS environment with
 # raspicat_vla_msgs is already on PATH (e.g. you're inside the container), the
 # helper runs directly instead of via docker exec.
+#
+# ROS_DOMAIN_ID: if set in the host environment it is forwarded into the
+# container so the helper talks on the same DDS domain as the edge node. In the
+# direct-run path it is already inherited from the host env.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -72,7 +76,14 @@ for a in "$@"; do
     quoted+=" $(printf '%q' "$a")"
 done
 
-exec docker exec "$cid" bash -lc "
+# Forward ROS_DOMAIN_ID into the container when it is set on the host, so the
+# helper joins the same DDS domain as the running edge node.
+exec_env=()
+if [[ -n ${ROS_DOMAIN_ID:-} ]]; then
+    exec_env+=(-e "ROS_DOMAIN_ID=${ROS_DOMAIN_ID}")
+fi
+
+exec docker exec "${exec_env[@]}" "$cid" bash -lc "
     source /opt/ros/humble/setup.bash
     [ -f /workspace/install/setup.bash ] && source /workspace/install/setup.bash
     exec python3 /workspace/scripts/control.py${quoted}
