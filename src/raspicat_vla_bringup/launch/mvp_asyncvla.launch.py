@@ -18,6 +18,7 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument, EmitEvent, ExecuteProcess, RegisterEventHandler,
+    TimerAction,
 )
 from launch.event_handlers import OnProcessStart
 from launch.events import matches_action
@@ -93,7 +94,13 @@ def generate_launch_description():
         DeclareLaunchArgument('edge_device', default_value='cpu'),
         asyncvla_server,
         edge,
-        RegisterEventHandler(OnProcessStart(target_action=edge, on_start=[configure])),
+        # Delay the initial configure: OnProcessStart fires at process fork,
+        # before the node's change_state service exists, so an immediate
+        # EmitEvent(configure) is silently dropped on slow hosts (e.g. Jetson).
+        RegisterEventHandler(OnProcessStart(
+            target_action=edge,
+            on_start=[TimerAction(period=5.0, actions=[configure])],
+        )),
         RegisterEventHandler(OnStateTransition(
             target_lifecycle_node=edge, goal_state='inactive', entities=[activate],
         )),
