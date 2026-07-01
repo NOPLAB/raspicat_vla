@@ -221,7 +221,9 @@ resolve_camera() {
 #    gid works even if the group name doesn't exist inside the container).
 #  - realsense: the RealSense USB device re-enumerates on reset and spans several
 #    /dev nodes, so bind-mount all of /dev and run privileged (the standard
-#    librealsense-in-Docker recipe) rather than pinning one --device.
+#    librealsense-in-Docker recipe) rather than pinning one --device. Also emit
+#    `--group-add <video-gid>` for the same EACCES reason as v4l2 — privileged
+#    alone does not let the unprivileged container user open /dev/video*.
 camera_docker_args() {
     local kind=$1 dev=$2
     case $kind in
@@ -232,6 +234,15 @@ camera_docker_args() {
             ;;
         realsense)
             printf '%s\n' --privileged -v /dev:/dev
+            # RealSense streams over UVC /dev/video* (mode 660 root:video). Under
+            # --user the container runs unprivileged, and --privileged does NOT
+            # grant a non-root uid a DAC override, so it still needs the video
+            # group or every open('/dev/videoN') fails EACCES and librealsense
+            # reports "No RealSense devices were found!". Mirror the v4l2 branch.
+            local vgid=""
+            vgid=$(getent group video 2>/dev/null | cut -d: -f3)
+            [[ -z $vgid && -e /dev/video0 ]] && vgid=$(stat -c '%g' /dev/video0)
+            [[ -n $vgid ]] && printf '%s\n' --group-add "$vgid"
             ;;
     esac
 }
