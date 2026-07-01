@@ -7,7 +7,7 @@ The OmniVLA-edge policy runs on a remote GPU box (typically a Jetson) and stream
 predicted waypoints over gRPC; the edge runs only the light path-only adapter and
 does the control. This mirrors the intended deployment ("Jetson infers, Raspberry
 Pi controls") but assumes both are on localhost. For a real split-host run, start
-the server with ``docker/run.sh run omnivla_edge --remote --gpu`` on the Jetson
+the server with ``scripts/vla.sh run omnivla_edge --remote --gpu`` on the Jetson
 and bring up only the edge with ``edge_only.launch.py`` (adapter_kind:=omnivla)
 pointed at the Jetson.
 

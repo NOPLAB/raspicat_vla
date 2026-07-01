@@ -12,7 +12,7 @@
 #    prismatic.models.small_head works without transformers / draccus / peft.
 #  - external/MBRA on PYTHONPATH (vint_train.models.vint.self_attention).
 #
-# Used by docker/run.sh `run {asyncvla,omnivla} --sim --host HOST[:PORT]`.
+# Used by scripts/vla.sh `run {asyncvla,omnivla} --sim --host HOST[:PORT]`.
 # At runtime mount the repo at /workspace; the user-side raspicat-vla
 # packages are built on first launch by the entry script.
 FROM osrf/ros:humble-desktop-full

@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-**Keep only what the code can't tell you.** Invariants to preserve, why a decision was made, what's absent from the tree, and gotchas belong here. Don't duplicate API signatures, class/implementation lists, default parameter values, or CLI flags — read the source (or `run.sh` usage output) for those, and delete anything here that a quick read would reveal.
+**Keep only what the code can't tell you.** Invariants to preserve, why a decision was made, what's absent from the tree, and gotchas belong here. Don't duplicate API signatures, class/implementation lists, default parameter values, or CLI flags — read the source (or `vla.sh` usage output) for those, and delete anything here that a quick read would reveal.
 
 ## What this is
 
@@ -60,18 +60,18 @@ python3 tools/publish_fake_image.py   # inject a frame so something flows
 
 ### Docker (preferred — self-contained, matches CI)
 
-`docker/run.sh` is the orchestrator (`build` / `run MODEL --mode MODE` / `test`). Run it with no args for the authoritative image, MODEL, MODE, and flag list — the notes below only cover what that usage text won't tell you.
+`scripts/vla.sh` is the orchestrator (`build` / `run MODEL --mode MODE` / `test`). Run it with no args for the authoritative image, MODEL, MODE, and flag list — the notes below only cover what that usage text won't tell you.
 
 Mode selection is `--mode <value>`, not one flag per mode. A few modes have non-obvious purpose:
 
 - `--mode cmd_vel` is a single-host, no-real-robot bring-up: **one command starts two containers** (remote server bound to `127.0.0.1` + edge stack) and the follower publishes to a **non-motor topic** (`/cmd_vel_vla`, via `cmd_vel.launch.py`), so the full observation→gRPC→embedding→path→cmd_vel pipeline runs and is observable (`ros2 topic echo /cmd_vel_vla`) without driving motors. The server is detached and torn down on exit.
 - `--mode edge-local` (Plan 2B Path 2, `omnivla_edge` only) runs the OmniVLA-edge policy standalone **on the robot** (`mvp_omnivla_edge.launch.py`, no cloud server). Needs CUDA and `models/omnivla-edge/omnivla-edge.pth`.
 
-**Jetson AGX Orin (ARM64).** On an `aarch64` host `run.sh` auto-selects the `*-jetson` remote images and swaps `--gpus all` for `--runtime nvidia`. Match the image to your JetPack via the `L4T_BASE`/`TORCH_VERSION` build args (see the Dockerfile header). Force/disable Jetson mode with `RASPICAT_VLA_JETSON=1`/`=0`.
+**Jetson AGX Orin (ARM64).** On an `aarch64` host `vla.sh` auto-selects the `*-jetson` remote images and swaps `--gpus all` for `--runtime nvidia`. Match the image to your JetPack via the `L4T_BASE`/`TORCH_VERSION` build args (see the Dockerfile header). Force/disable Jetson mode with `RASPICAT_VLA_JETSON=1`/`=0`.
 
-`run.sh test` rebuilds the test image on demand and **passes explicit test-file paths to pytest** because ROS2's `launch_testing` plugin claims directories and silently drops their tests. If you add a new `test_*.py`, the default-paths discovery (find -path `*/test/test_*.py`) will pick it up automatically; if you invoke pytest with bare flags (`-k foo`), `run.sh` still prepends the default paths so cwd discovery doesn't walk `external/` and crash.
+`vla.sh test` rebuilds the test image on demand and **passes explicit test-file paths to pytest** because ROS2's `launch_testing` plugin claims directories and silently drops their tests. If you add a new `test_*.py`, the default-paths discovery (find -path `*/test/test_*.py`) will pick it up automatically; if you invoke pytest with bare flags (`-k foo`), `vla.sh` still prepends the default paths so cwd discovery doesn't walk `external/` and crash.
 
-Inside the `real`/`sim` containers, `run.sh` runs colcon for the `raspicat_vla_*` packages on every launch (idempotent — it skips when `install/setup.bash` already exists; force a rebuild with `RASPICAT_VLA_REBUILD=1`). The user-side packages are bind-mounted from `/workspace`, while the rt-net packages are pre-built into `/opt/{real,sim}_ws` at image build time.
+Inside the `real`/`sim` containers, `vla.sh` runs colcon for the `raspicat_vla_*` packages on every launch (idempotent — it skips when `install/setup.bash` already exists; force a rebuild with `RASPICAT_VLA_REBUILD=1`). The user-side packages are bind-mounted from `/workspace`, while the rt-net packages are pre-built into `/opt/{real,sim}_ws` at image build time.
 
 ### Regenerating gRPC stubs
 
@@ -94,9 +94,9 @@ Reuses `~/.cache/huggingface` so repeat runs are fast.
 ## Testing
 
 ```bash
-docker/run.sh test                              # full suite
-docker/run.sh test -k checkpoint                # filter by name
-docker/run.sh test src/raspicat_vla_edge/test/test_pure_pursuit.py
+scripts/vla.sh test                              # full suite
+scripts/vla.sh test -k checkpoint                # filter by name
+scripts/vla.sh test src/raspicat_vla_edge/test/test_pure_pursuit.py
 ```
 
 Heavy integration tests that need GPUs/weights are gated by `ASYNCVLA_E2E` / `OMNIVLA_E2E` env vars and skip cleanly otherwise.

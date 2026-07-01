@@ -1,6 +1,6 @@
 """Launch raspicat_sim (Gazebo) + the VLA edge stack.
 
-Used by ``docker/run.sh run {asyncvla,omnivla} --sim --host HOST[:PORT]`` to
+Used by ``scripts/vla.sh run {asyncvla,omnivla} --sim --host HOST[:PORT]`` to
 bring up Gazebo with raspicat in an empty world and our edge node + path
 follower pointed at a remote cloud server.
 

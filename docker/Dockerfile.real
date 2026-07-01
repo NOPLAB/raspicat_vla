@@ -12,7 +12,7 @@
 #    Dockerfile.sim).
 #  - external/MBRA on PYTHONPATH for vint_train.models.vint.self_attention.
 #
-# Used by docker/run.sh `run {asyncvla,omnivla} --real --host HOST[:PORT]`.
+# Used by scripts/vla.sh `run {asyncvla,omnivla} --real --host HOST[:PORT]`.
 # Mount the repo at /workspace; raspicat-vla packages build on first launch.
 FROM ros:humble-ros-base
 

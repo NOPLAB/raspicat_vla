@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # control.sh — drive a running raspicat_vla stack: motor power + VLA goals.
 #
-# Works against whichever run.sh mode is up — edge, cmd_vel, sim, or edge-local
+# Works against whichever vla.sh mode is up — edge, cmd_vel, sim, or edge-local
 # — because all of them run the same edge node, which subscribes to the goal
 # topic and (where a robot/raspimouse is present) offers the /motor_power
 # service. There is nothing to control in a bare `--mode remote` box: that
@@ -63,9 +63,9 @@ if [[ -z $cid ]]; then
     echo "error: no running raspicat-vla edge container found." >&2
     echo "       looked for images: ${CANDIDATE_IMAGES[*]}" >&2
     echo "       start the edge side first, e.g.:" >&2
-    echo "         docker/run.sh run omnivla --mode cmd_vel --gpu" >&2
-    echo "         docker/run.sh run omnivla --mode edge --host HOST:PORT" >&2
-    echo "         docker/run.sh run omnivla --mode sim  --host HOST:PORT" >&2
+    echo "         scripts/vla.sh run omnivla --mode cmd_vel --gpu" >&2
+    echo "         scripts/vla.sh run omnivla --mode edge --host HOST:PORT" >&2
+    echo "         scripts/vla.sh run omnivla --mode sim  --host HOST:PORT" >&2
     echo "       (or set RASPICAT_VLA_CONTAINER=<name-or-id>)" >&2
     exit 1
 fi

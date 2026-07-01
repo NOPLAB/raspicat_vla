@@ -1,6 +1,6 @@
 """Launch the edge stack in *cmd_vel preview* mode — no real robot control.
 
-This is the edge half of ``run.sh run MODEL --mode cmd_vel``: it brings up the
+This is the edge half of ``vla.sh run MODEL --mode cmd_vel``: it brings up the
 VLA edge lifecycle node + path_follower_node exactly like ``edge_only.launch.py``
 with a remote server, but the follower publishes its Twist to a **non-motor
 topic** (default ``/cmd_vel_vla``) instead of ``/cmd_vel``. So the full
@@ -8,7 +8,7 @@ observation -> gRPC -> embedding -> path -> cmd_vel pipeline runs and the comman
 is observable (``ros2 topic echo /cmd_vel_vla``), yet the robot's motors — which
 listen on ``/cmd_vel`` — are never driven.
 
-The remote VLA server is started as a separate container by ``run.sh`` (the
+The remote VLA server is started as a separate container by ``vla.sh`` (the
 remote images have no ROS2); this launch only points ``remote_address`` at it.
 
 Launch args:

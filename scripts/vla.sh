@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# docker/run.sh — wrapper for building and running raspicat-vla Docker images.
+# scripts/vla.sh — wrapper for building and running raspicat-vla Docker images.
 #
 # Subcommands:
 #   build TARGET            asyncvla | omnivla | test | real | sim | --all
@@ -13,13 +13,16 @@
 #                           edge/cmd_vel/edge-local also take
 #                                   --camera edge|realsense|/dev/videoN
 #
-# Run `run.sh --help` for the full reference.
+# Run `vla.sh --help` for the full reference.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GRPC_PORT="${GRPC_PORT:-50051}"
 HF_CACHE_DIR="${HF_CACHE_DIR:-${HOME}/.cache/huggingface}"
 HOST_ARCH="$(uname -m)"
+# Host user:group. Every ROS container runs as this (via ROS_USER_BASE_ARGS) so
+# files it writes under the /workspace bind-mount stay host-owned, not root.
+HOST_UID_GID="$(id -u):$(id -g)"
 
 # Jetson (L4T/aarch64) needs the ARM remote images + `--runtime nvidia` for GPU,
 # not x86's `--gpus all`. Auto-detected from the host arch; force with
@@ -30,6 +33,19 @@ is_jetson() {
         0) return 1 ;;
     esac
     [[ $HOST_ARCH == aarch64 || $HOST_ARCH == arm64 ]]
+}
+
+# `docker run` GPU flags for CUDA workloads on this host, one per line for
+# `mapfile`. x86 uses the nvidia-container-toolkit's `--gpus all`; Jetson/L4T
+# exposes the iGPU through the nvidia container *runtime* instead (`--gpus all`
+# invokes the prestart hook directly there and fails). Used by the remote server
+# and edge-local; run_sim rolls its own (it also needs GL capabilities enabled).
+_gpu_docker_args() {
+    if is_jetson; then
+        printf '%s\n' --runtime nvidia
+    else
+        printf '%s\n' --gpus all
+    fi
 }
 
 # Image / Dockerfile / model knob registries. Bash 4 associative arrays.
@@ -69,7 +85,7 @@ declare -A WEIGHTS_DIR=(
 
 usage() {
     cat <<'EOF'
-Usage: run.sh COMMAND [ARGS]
+Usage: vla.sh COMMAND [ARGS]
 
 Commands:
   build TARGET            Build a Docker image
@@ -130,36 +146,36 @@ Commands:
     --mode edge-local runs the whole thing on one CUDA box instead.
   test [PYTEST_ARGS...]   Run pytest in raspicat-vla-test (CPU). Auto-builds
                           the image if missing. Pass extra args to pytest:
-                            run.sh test                        # full suite
-                            run.sh test -k checkpoint          # filter
-                            run.sh test src/raspicat_vla_edge/test  # subset
+                            vla.sh test                        # full suite
+                            vla.sh test -k checkpoint          # filter
+                            vla.sh test src/raspicat_vla_edge/test  # subset
   help, -h, --help        Show this help
 
 Examples:
-  run.sh build asyncvla
-  run.sh build --all
-  run.sh run asyncvla --mode remote --gpu                  # bind 0.0.0.0:50051
-  run.sh run asyncvla --mode remote --gpu --host :8080     # bind 0.0.0.0:8080
-  run.sh run asyncvla --mode remote --cpu --host 127.0.0.1 # localhost only
-  run.sh run omnivla  --mode remote --gpu --host 10.0.0.5:9000  # specific NIC + port
-  run.sh run asyncvla --mode edge --host 192.168.1.2       # default port
-  run.sh run asyncvla --mode edge --host 192.168.1.2:8080
-  run.sh run omnivla  --mode edge --host 192.168.1.2 --camera edge       # v4l2 /dev/video0
-  run.sh run omnivla  --mode edge --host 192.168.1.2 --camera /dev/cam1  # v4l2 explicit device
-  run.sh run omnivla  --mode edge --host 192.168.1.2 --camera realsense  # Intel RealSense
-  run.sh run omnivla  --mode cmd_vel --gpu                 # remote+edge here, no motors
-  run.sh run omnivla  --mode sim  --host 192.168.1.2:9000
-  run.sh run omnivla_edge --mode edge-local               # Path 2, standalone on-edge policy (GPU)
-  run.sh run omnivla_edge --mode remote --gpu             # Path 3, OmniVLA-edge server (Jetson)
-  run.sh run omnivla_edge --mode edge --host 192.168.1.2  # Path 3, Pi edge -> Jetson server
-  run.sh test                                              # full pytest suite
-  run.sh test -k omnivla                                   # filter by name
+  vla.sh build asyncvla
+  vla.sh build --all
+  vla.sh run asyncvla --mode remote --gpu                  # bind 0.0.0.0:50051
+  vla.sh run asyncvla --mode remote --gpu --host :8080     # bind 0.0.0.0:8080
+  vla.sh run asyncvla --mode remote --cpu --host 127.0.0.1 # localhost only
+  vla.sh run omnivla  --mode remote --gpu --host 10.0.0.5:9000  # specific NIC + port
+  vla.sh run asyncvla --mode edge --host 192.168.1.2       # default port
+  vla.sh run asyncvla --mode edge --host 192.168.1.2:8080
+  vla.sh run omnivla  --mode edge --host 192.168.1.2 --camera edge       # v4l2 /dev/video0
+  vla.sh run omnivla  --mode edge --host 192.168.1.2 --camera /dev/cam1  # v4l2 explicit device
+  vla.sh run omnivla  --mode edge --host 192.168.1.2 --camera realsense  # Intel RealSense
+  vla.sh run omnivla  --mode cmd_vel --gpu                 # remote+edge here, no motors
+  vla.sh run omnivla  --mode sim  --host 192.168.1.2:9000
+  vla.sh run omnivla_edge --mode edge-local               # Path 2, standalone on-edge policy (GPU)
+  vla.sh run omnivla_edge --mode remote --gpu             # Path 3, OmniVLA-edge server (Jetson)
+  vla.sh run omnivla_edge --mode edge --host 192.168.1.2  # Path 3, Pi edge -> Jetson server
+  vla.sh test                                              # full pytest suite
+  vla.sh test -k omnivla                                   # filter by name
 
 Jetson AGX Orin (ARM64):
   On an aarch64 host this script auto-selects the *-jetson remote images and
   swaps `--gpus all` for `--runtime nvidia`. Build + run on the device:
-    run.sh build omnivla-jetson
-    run.sh run omnivla --mode remote --gpu           # uses raspicat-vla-omnivla-jetson
+    vla.sh build omnivla-jetson
+    vla.sh run omnivla --mode remote --gpu           # uses raspicat-vla-omnivla-jetson
   Match the image to your JetPack via Docker build args (see the Dockerfile
   header), e.g.:
     docker build -f docker/Dockerfile.omnivla.jetson \
@@ -173,7 +189,7 @@ Environment overrides:
   RASPICAT_VLA_JETSON  1 = force Jetson images + nvidia runtime; 0 = force x86
   ROS_DOMAIN_ID        forwarded into every ROS container to isolate DDS
                        discovery (unset => ROS default 0). Under sudo pass it
-                       through: sudo ROS_DOMAIN_ID=N ./docker/run.sh ...
+                       through: sudo ROS_DOMAIN_ID=N ./scripts/vla.sh ...
 EOF
 }
 
@@ -223,10 +239,21 @@ camera_docker_args() {
 # Forward the host's ROS_DOMAIN_ID into every ROS container so DDS discovery can
 # be isolated (e.g. several robots / dev boxes sharing a LAN). Set once from the
 # host env; empty when unset (=> ROS default domain 0). NOTE: sudo scrubs the
-# environment, so when running run.sh under sudo pass it through explicitly:
-# `sudo ROS_DOMAIN_ID=N ./docker/run.sh …` (or `sudo -E`).
+# environment, so when running vla.sh under sudo pass it through explicitly:
+# `sudo ROS_DOMAIN_ID=N ./scripts/vla.sh …` (or `sudo -E`).
 ROS_DOMAIN_DOCKER_ARGS=()
 [[ -n ${ROS_DOMAIN_ID:-} ]] && ROS_DOMAIN_DOCKER_ARGS=(-e "ROS_DOMAIN_ID=${ROS_DOMAIN_ID}")
+
+# Base `docker run` flags shared by every workspace-building ROS container we run
+# as the host user (edge, sim, edge-local, test): --rm, host-user mapping,
+# HOME=/tmp (the mapped user has no home in the image), the ROS_DOMAIN_ID
+# passthrough, and the workspace bind-mount. Callers append mode-specific flags
+# (GPU, camera, HF cache, …). Built once, after ROS_DOMAIN_DOCKER_ARGS is set.
+ROS_USER_BASE_ARGS=(
+    --rm --user "$HOST_UID_GID" -e HOME=/tmp
+    "${ROS_DOMAIN_DOCKER_ARGS[@]}"
+    -v "$REPO_ROOT:/workspace"
+)
 
 # Append camera_kind:=/camera_device:= to the launch argv array named by $1,
 # skipping any that are empty — ROS2 rejects a bare `foo:=` with no value, and
@@ -236,6 +263,10 @@ _append_camera_launch_args() {
     local kind=$2 dev=$3
     [[ -n $kind ]] && _arr+=("camera_kind:=${kind}")
     [[ -n $dev ]] && _arr+=("camera_device:=${dev}")
+    # Explicit success: a trailing `[[ ... ]] &&` that fails (no camera => both
+    # branches skipped) would make this function return 1 and, under `set -e`,
+    # abort the whole script right after the caller's log line.
+    return 0
 }
 
 # split_hostport HOST[:PORT] DEFAULT_HOST DEFAULT_PORT -> "HOST PORT" on stdout.
@@ -325,15 +356,9 @@ _run_remote_server() {
     if is_jetson; then
         image="${IMAGES[${model}-jetson]}"
     fi
-    local gpu_flag="" device_arg="cpu"
+    local gpu_args=() device_arg="cpu"
     if [[ $device == gpu ]]; then
-        # x86 uses the nvidia-container-toolkit's `--gpus all`; Jetson/L4T exposes
-        # the iGPU through the nvidia container runtime instead.
-        if is_jetson; then
-            gpu_flag="--runtime nvidia"
-        else
-            gpu_flag="--gpus all"
-        fi
+        mapfile -t gpu_args < <(_gpu_docker_args)
         device_arg="cuda:0"
     fi
 
@@ -341,8 +366,7 @@ _run_remote_server() {
     # The raspicat_vla_proto/raspicat_vla_remote packages are ROS2 ament_python
     # layouts (setup.cfg uses `script_dir`), so `pip install -e` fails on modern
     # setuptools. Run from source via PYTHONPATH instead.
-    # shellcheck disable=SC2086
-    docker run "${docker_opts[@]}" $gpu_flag --network host \
+    docker run "${docker_opts[@]}" "${gpu_args[@]}" --network host \
         -v "$REPO_ROOT:/workspace" \
         -v "$HF_CACHE_DIR:/root/.cache/huggingface" \
         "$image" bash -lc "
@@ -379,6 +403,21 @@ source install/setup.bash
 BUILD
 }
 
+# Emit the in-container bootstrap common to every ROS launch we run: source ROS,
+# optionally source a prebuilt workspace overlay, cd /workspace, (re)build the
+# raspicat_vla_* packages, then exec the launch command. $1 = the overlay source
+# line ('' for none, e.g. "source /opt/real_ws/install/setup.bash"); the
+# remaining args are the command to exec (joined with spaces, and re-tokenised by
+# the container shell — same as the launch argv arrays the callers pass in).
+_container_launch_script() {
+    local overlay=$1; shift
+    printf '%s\n' 'source /opt/ros/humble/setup.bash'
+    [[ -n $overlay ]] && printf '%s\n' "$overlay"
+    printf '%s\n' 'cd /workspace'
+    _workspace_build_cmd
+    printf 'exec %s\n' "$*"
+}
+
 # The edge-side adapter_kind for a remote MODEL. omnivla_edge (Path 3) runs the
 # policy on the remote box, so the Pi uses the light path-only 'omnivla' adapter;
 # every other model's edge adapter matches the model name.
@@ -403,7 +442,7 @@ _run_edge_launch() {
     if ! docker image inspect "$image" >/dev/null 2>&1; then
         has_real_image=false
         warn "image ${image} not built; falling back to ${IMAGES[test]} (no rt-net packages)."
-        warn "run \`run.sh build real\` for the full image with raspicat_ros + Edge_adapter deps."
+        warn "run \`vla.sh build real\` for the full image with raspicat_ros + Edge_adapter deps."
         image="${IMAGES[test]}"
         if [[ $model == asyncvla ]]; then
             warn "AsyncVLA edge needs torch + MBRA on PYTHONPATH; the test image lacks them."
@@ -413,20 +452,12 @@ _run_edge_launch() {
     if $has_real_image; then
         source_real_ws="source /opt/real_ws/install/setup.bash"
     fi
-    docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
+    docker run "${ROS_USER_BASE_ARGS[@]}" \
         -e RASPICAT_VLA_REBUILD \
-        "${ROS_DOMAIN_DOCKER_ARGS[@]}" \
         --network host \
         "${device_args[@]}" \
-        -v "$REPO_ROOT:/workspace" \
         -v "$HF_CACHE_DIR:/tmp/.cache/huggingface" \
-        "$image" bash -lc "
-            source /opt/ros/humble/setup.bash
-            ${source_real_ws}
-            cd /workspace
-            $(_workspace_build_cmd)
-            exec ${launch_argv[*]}
-        "
+        "$image" bash -lc "$(_container_launch_script "$source_real_ws" "${launch_argv[@]}")"
 }
 
 run_edge() {
@@ -485,25 +516,19 @@ run_sim() {
     adapter_kind=$(edge_adapter_for "$model")
     if ! docker image inspect "$image" >/dev/null 2>&1; then
         warn "image ${image} not built; falling back to ${IMAGES[test]} (no Gazebo)."
-        warn "run \`run.sh build sim\` for the full sim image with Gazebo + raspicat_sim."
+        warn "run \`vla.sh build sim\` for the full sim image with Gazebo + raspicat_sim."
         image="${IMAGES[test]}"
         # Fallback: edge_only without Gazebo.
         log "${model} edge (sim-fallback, image=${image}); cloud=${host}:${port}"
-        docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
+        docker run "${ROS_USER_BASE_ARGS[@]}" \
             -e RASPICAT_VLA_REBUILD \
-            "${ROS_DOMAIN_DOCKER_ARGS[@]}" \
             --network host \
-            -v "$REPO_ROOT:/workspace" \
             -v "$HF_CACHE_DIR:/tmp/.cache/huggingface" \
-            "$image" bash -lc "
-                source /opt/ros/humble/setup.bash
-                cd /workspace
-                $(_workspace_build_cmd)
-                exec ros2 launch raspicat_vla_edge edge_only.launch.py \
-                    remote_address:=${host}:${port} \
-                    adapter_kind:=${adapter_kind} \
-                    with_follower:=true
-            "
+            "$image" bash -lc "$(_container_launch_script "" \
+                ros2 launch raspicat_vla_edge edge_only.launch.py \
+                "remote_address:=${host}:${port}" \
+                "adapter_kind:=${adapter_kind}" \
+                with_follower:=true)"
         return
     fi
 
@@ -553,25 +578,19 @@ run_sim() {
     # matched — so spawn_entity times out and the robot never appears. Pinning to
     # localhost fixes that and isolates us from other ROS nodes on the LAN.
     log "${model} sim (image=${image}); cloud=${host}:${port}"
-    docker run --rm --user "${uid}:${gid}" -e HOME=/tmp \
+    docker run "${ROS_USER_BASE_ARGS[@]}" \
         -e ROS_LOCALHOST_ONLY=1 \
-        "${ROS_DOMAIN_DOCKER_ARGS[@]}" \
         --network host \
         "${gpu_args[@]}" \
         "${display_args[@]}" \
         -v "$passwd_dir/passwd:/etc/passwd:ro" \
         -v "$passwd_dir/group:/etc/group:ro" \
-        -v "$REPO_ROOT:/workspace" \
         -v "$HF_CACHE_DIR:/tmp/.cache/huggingface" \
-        "$image" bash -lc "
-            source /opt/ros/humble/setup.bash
-            source /opt/sim_ws/install/setup.bash
-            cd /workspace
-            $(_workspace_build_cmd)
-            exec ros2 launch raspicat_vla_bringup mvp_sim.launch.py \
-                remote_address:=${host}:${port} \
-                adapter_kind:=${adapter_kind}
-        "
+        "$image" bash -lc "$(_container_launch_script \
+            "source /opt/sim_ws/install/setup.bash" \
+            ros2 launch raspicat_vla_bringup mvp_sim.launch.py \
+            "remote_address:=${host}:${port}" \
+            "adapter_kind:=${adapter_kind}")"
 }
 
 # Plan 2B Path 2: the OmniVLA-edge policy runs entirely on the edge. The edge
@@ -583,39 +602,30 @@ run_edge_local() {
     local camera_kind=${1:-} camera_device=${2:-}
     local image="${IMAGES[real]}"
     if ! docker image inspect "$image" >/dev/null 2>&1; then
-        err "image ${image} not built; run \`run.sh build real\` first."
+        err "image ${image} not built; run \`vla.sh build real\` first."
         return 1
     fi
     warn "Path 2 runs the OmniVLA-edge policy on-device and REQUIRES CUDA."
     warn "Dockerfile.real ships CPU torch; on a GPU host, rebuild it with a CUDA torch wheel."
     warn "Needs weights at models/omnivla-edge/omnivla-edge.pth (scripts/download_omnivla_edge_checkpoints.sh)."
     mkdir -p "${HOME}/.cache/clip"
-    # x86 exposes the GPU via the nvidia-container-toolkit's `--gpus all`; Jetson/L4T
-    # exposes the iGPU through the nvidia container runtime instead (`--gpus all`
-    # invokes the prestart hook directly there and fails). Mirror run_remote().
-    local gpu_flag="--gpus all"
-    is_jetson && gpu_flag="--runtime nvidia"
+    local gpu_args=()
+    mapfile -t gpu_args < <(_gpu_docker_args)
     local device_args=()
     mapfile -t device_args < <(camera_docker_args "$camera_kind" "$camera_device")
     local cam_launch_args=()
     _append_camera_launch_args cam_launch_args "$camera_kind" "$camera_device"
-    log "omnivla_edge edge-local (image=${image}, ${gpu_flag}); standalone edge + follower${camera_kind:+; camera=${camera_kind}${camera_device:+ ${camera_device}}}"
-    # shellcheck disable=SC2086
-    docker run --rm $gpu_flag --user "$(id -u):$(id -g)" -e HOME=/tmp \
-        "${ROS_DOMAIN_DOCKER_ARGS[@]}" \
+    log "omnivla_edge edge-local (image=${image}, ${gpu_args[*]}); standalone edge + follower${camera_kind:+; camera=${camera_kind}${camera_device:+ ${camera_device}}}"
+    docker run "${ROS_USER_BASE_ARGS[@]}" \
+        "${gpu_args[@]}" \
         --network host \
         "${device_args[@]}" \
-        -v "$REPO_ROOT:/workspace" \
         -v "$HF_CACHE_DIR:/tmp/.cache/huggingface" \
         -v "${HOME}/.cache/clip:/tmp/.cache/clip" \
-        "$image" bash -lc "
-            source /opt/ros/humble/setup.bash
-            source /opt/real_ws/install/setup.bash
-            cd /workspace
-            $(_workspace_build_cmd)
-            exec ros2 launch raspicat_vla_bringup mvp_omnivla_edge.launch.py \
-                device:=cuda:0 ${cam_launch_args[*]}
-        "
+        "$image" bash -lc "$(_container_launch_script \
+            "source /opt/real_ws/install/setup.bash" \
+            ros2 launch raspicat_vla_bringup mvp_omnivla_edge.launch.py \
+            "device:=cuda:0" "${cam_launch_args[@]}")"
 }
 
 cmd_run() {
@@ -754,7 +764,7 @@ cmd_test() {
         args=(-v "${default_paths[@]}")
     else
         # Decide whether the user supplied any test path. Pure-flag invocations
-        # (`run.sh test -k name`, `--lf`, `-x`) need default_paths prepended
+        # (`vla.sh test -k name`, `--lf`, `-x`) need default_paths prepended
         # so pytest doesn't fall back to cwd discovery (which would walk
         # external/ and crash on missing transitive deps).
         local has_path=false a
@@ -771,9 +781,7 @@ cmd_test() {
     printf -v args_str '%q ' "${args[@]}"
 
     log "pytest in ${image} (${#args[@]} args)"
-    docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
-        "${ROS_DOMAIN_DOCKER_ARGS[@]}" \
-        -v "$REPO_ROOT:/workspace" \
+    docker run "${ROS_USER_BASE_ARGS[@]}" \
         "$image" bash -lc "
             set -e
             source /opt/ros/humble/setup.bash
