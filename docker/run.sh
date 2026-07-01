@@ -375,12 +375,16 @@ run_edge() {
     local adapter_kind
     adapter_kind=$(edge_adapter_for "$model")
     log "${model} edge (real); cloud=${host}:${port}${camera_device:+; camera=${camera_device}}"
-    _run_edge_launch "$model" "$camera_device" \
-        ros2 launch raspicat_vla_edge edge_only.launch.py \
-            "remote_address:=${host}:${port}" \
-            "adapter_kind:=${adapter_kind}" \
-            "camera_device:=${camera_device}" \
-            with_follower:=true
+    local launch_args=(
+        ros2 launch raspicat_vla_edge edge_only.launch.py
+        "remote_address:=${host}:${port}"
+        "adapter_kind:=${adapter_kind}"
+        with_follower:=true
+    )
+    # Omit camera_device entirely when unset — the launch file defaults it to ''
+    # and ROS2 rejects a bare `camera_device:=` (empty value).
+    [[ -n $camera_device ]] && launch_args+=("camera_device:=${camera_device}")
+    _run_edge_launch "$model" "$camera_device" "${launch_args[@]}"
 }
 
 # cmd_vel mode: one command, two containers, no real robot. Start the remote
@@ -403,11 +407,14 @@ run_cmd_vel() {
         -d --rm --name "$server_name" >/dev/null
 
     log "cmd_vel: edge -> 127.0.0.1:${port}; follower publishes /cmd_vel_vla (not /cmd_vel)${camera_device:+; camera=${camera_device}}"
-    _run_edge_launch "$model" "$camera_device" \
-        ros2 launch raspicat_vla_bringup cmd_vel.launch.py \
-            "remote_address:=127.0.0.1:${port}" \
-            "adapter_kind:=${adapter_kind}" \
-            "camera_device:=${camera_device}"
+    local launch_args=(
+        ros2 launch raspicat_vla_bringup cmd_vel.launch.py
+        "remote_address:=127.0.0.1:${port}"
+        "adapter_kind:=${adapter_kind}"
+    )
+    # See run_edge: skip the arg when empty so ROS2 doesn't reject `camera_device:=`.
+    [[ -n $camera_device ]] && launch_args+=("camera_device:=${camera_device}")
+    _run_edge_launch "$model" "$camera_device" "${launch_args[@]}"
 }
 
 run_sim() {
@@ -542,7 +549,7 @@ run_edge_local() {
             $(_workspace_build_cmd)
             exec ros2 launch raspicat_vla_bringup mvp_omnivla_edge.launch.py \
                 device:=cuda:0 \
-                camera_device:=${camera_device}
+                ${camera_device:+camera_device:=${camera_device}}
         "
 }
 
