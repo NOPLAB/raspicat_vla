@@ -20,6 +20,15 @@
 #   scripts/control.sh goal image /workspace/path/to.jpg
 #   scripts/control.sh stop                             # motor off (coast to halt)
 #   scripts/control.sh status
+#   scripts/control.sh logs [-f] [server|edge]          # tail container output
+#
+# `logs` is a host-side helper (a `docker logs` shortcut), not a ROS command: it
+# surfaces model-load progress + runtime output. In cmd_vel / detached-remote
+# modes the VLA model loads in the remote *server* container; in edge-local it
+# loads in the *edge* container. With no target it prefers the server when one is
+# up (that's where the big checkpoint + CLIP load happens), else the edge. Pass
+# -f/--follow to stream. It runs on the host regardless of the direct-run path
+# below, since `docker logs` is meaningless from inside a container.
 #
 # First run is typically:  scripts/control.sh motor on
 #                          scripts/control.sh goal pose 2 0
@@ -38,27 +47,70 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# Already inside a ROS env with our messages? Run directly.
-if python3 -c 'import rclpy, raspicat_vla_msgs.msg' >/dev/null 2>&1; then
-    exec python3 "${REPO_ROOT}/scripts/control.py" "$@"
-fi
-
-# Edge-capable images, most-specific first. The edge node — the thing that owns
-# the goal topic + motor service — runs in one of these; the remote server
-# images (omnivla/asyncvla) run no ROS node, so they are intentionally omitted.
+# Edge-capable images, most-specific first (shared by `logs` and the exec path).
 CANDIDATE_IMAGES=(
     "${RASPICAT_VLA_REAL_IMAGE:-raspicat-vla-real}"
     "${RASPICAT_VLA_SIM_IMAGE:-raspicat-vla-sim}"
     "${RASPICAT_VLA_TEST_IMAGE:-raspicat-vla-test}"
 )
 
-cid="${RASPICAT_VLA_CONTAINER:-${RASPICAT_SIM_CONTAINER:-}}"
-if [[ -z $cid ]]; then
-    for img in "${CANDIDATE_IMAGES[@]}"; do
-        cid="$(docker ps -q --filter "ancestor=${img}" | head -1)"
-        [[ -n $cid ]] && break
+# First running edge container across the candidate images (honours the
+# RASPICAT_VLA_CONTAINER / RASPICAT_SIM_CONTAINER overrides).
+find_edge_cid() {
+    local cid="${RASPICAT_VLA_CONTAINER:-${RASPICAT_SIM_CONTAINER:-}}"
+    if [[ -z $cid ]]; then
+        local img
+        for img in "${CANDIDATE_IMAGES[@]}"; do
+            cid="$(docker ps -q --filter "ancestor=${img}" | head -1)"
+            [[ -n $cid ]] && break
+        done
+    fi
+    printf '%s' "$cid"
+}
+
+# `logs` is a host-side `docker logs` shortcut — handle it before the direct-run
+# path, since it must run on the host even if rclpy happens to be importable.
+if [[ ${1:-} == logs ]]; then
+    shift
+    follow=()
+    target=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -f|--follow) follow=(-f); shift ;;
+            server|edge) target="$1"; shift ;;
+            *) echo "usage: control.sh logs [-f|--follow] [server|edge]" >&2; exit 2 ;;
+        esac
     done
+
+    # cmd_vel/detached-remote name the server container raspicat-vla-cmdvel-server-<pid>.
+    server_cid="$(docker ps -q --filter name=raspicat-vla-cmdvel-server | head -1)"
+    edge_cid="$(find_edge_cid)"
+
+    case "$target" in
+        server) cid="$server_cid"; label="remote server" ;;
+        edge)   cid="$edge_cid";   label="edge" ;;
+        *)      if [[ -n $server_cid ]]; then cid="$server_cid"; label="remote server"
+                else cid="$edge_cid"; label="edge"; fi ;;
+    esac
+
+    if [[ -z ${cid:-} ]]; then
+        echo "error: no ${target:-raspicat-vla} container running to show logs for." >&2
+        echo "       start a stack first, e.g.: scripts/vla.sh run omnivla_edge --mode cmd_vel --gpu" >&2
+        exit 1
+    fi
+    echo "==> ${label} logs (${cid}); Ctrl-C to stop" >&2
+    exec docker logs "${follow[@]}" "$cid"
 fi
+
+# Already inside a ROS env with our messages? Run directly.
+if python3 -c 'import rclpy, raspicat_vla_msgs.msg' >/dev/null 2>&1; then
+    exec python3 "${REPO_ROOT}/scripts/control.py" "$@"
+fi
+
+# The edge node — the thing that owns the goal topic + motor service — runs in
+# one of CANDIDATE_IMAGES (defined above); the remote server images
+# (omnivla/asyncvla) run no ROS node, so they are intentionally omitted.
+cid="$(find_edge_cid)"
 if [[ -z $cid ]]; then
     echo "error: no running raspicat-vla edge container found." >&2
     echo "       looked for images: ${CANDIDATE_IMAGES[*]}" >&2

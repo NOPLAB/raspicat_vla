@@ -18,6 +18,10 @@ Subcommands::
     stop                               motor off (robot coasts to a halt)
     status                             print cmd_vel / cmd_vel_vla / sim_cmd_vel / odom once
 
+The ``control.sh`` wrapper additionally handles ``logs [-f] [server|edge]`` on
+the host (a ``docker logs`` shortcut for model-load progress + runtime output);
+that never reaches this helper.
+
 The edge stays idle (zero cmd_vel) until a goal arrives, and the raspimouse gates
 cmd_vel -> sim_cmd_vel on motor power, so a typical first run is ``motor on``
 followed by ``goal pose 2 0``. ``motor off`` (or ``stop``) releases the motors.
