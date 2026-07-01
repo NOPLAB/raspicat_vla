@@ -4,6 +4,9 @@ Optional launch args (override edge_params.yaml):
   remote_address  - gRPC server address (default: from yaml, typically localhost:50051)
   adapter_kind    - stub|asyncvla|omnivla
   image_topic     - camera image topic (default: /camera/image_raw; raspicat_sim uses /camera/color/image_raw)
+  camera_device   - v4l2 device path (e.g. /dev/video0); when set, a v4l2_camera
+                    node is launched and remapped to publish on image_topic.
+                    Empty (default) = no camera node (frames come from elsewhere).
   with_follower   - true|false (also bring up path_follower_node)
   cmd_vel_topic   - follower's Twist output topic (default: /cmd_vel; set to a
                     non-motor topic like /cmd_vel_vla to run without driving the robot)
@@ -22,7 +25,7 @@ from launch.actions import DeclareLaunchArgument, EmitEvent, RegisterEventHandle
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessStart
 from launch.events import matches_action
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import LifecycleNode, Node
 from launch_ros.event_handlers import OnStateTransition
 from launch_ros.events.lifecycle import ChangeState
@@ -33,6 +36,7 @@ def generate_launch_description():
     remote_address = LaunchConfiguration('remote_address')
     adapter_kind = LaunchConfiguration('adapter_kind')
     image_topic = LaunchConfiguration('image_topic')
+    camera_device = LaunchConfiguration('camera_device')
     with_follower = LaunchConfiguration('with_follower')
     cmd_vel_topic = LaunchConfiguration('cmd_vel_topic')
     asyncvla_weights_path = LaunchConfiguration('asyncvla_weights_path')
@@ -94,10 +98,24 @@ def generate_launch_description():
         condition=IfCondition(with_follower),
     )
 
+    # Optional v4l2 camera driver. Only launched when camera_device is non-empty;
+    # publishes raw sensor_msgs/Image on image_topic (v4l2_camera's own default
+    # output is 'image_raw', remapped here to the edge node's image_topic).
+    camera = Node(
+        package='v4l2_camera',
+        executable='v4l2_camera_node',
+        name='camera',
+        output='screen',
+        parameters=[{'video_device': camera_device}],
+        remappings=[('image_raw', image_topic)],
+        condition=IfCondition(PythonExpression(["'", camera_device, "' != ''"])),
+    )
+
     return LaunchDescription([
         DeclareLaunchArgument('remote_address', default_value='localhost:50051'),
         DeclareLaunchArgument('adapter_kind', default_value='stub'),
         DeclareLaunchArgument('image_topic', default_value='/camera/image_raw'),
+        DeclareLaunchArgument('camera_device', default_value=''),
         DeclareLaunchArgument('with_follower', default_value='false'),
         DeclareLaunchArgument('cmd_vel_topic', default_value='/cmd_vel'),
         DeclareLaunchArgument('asyncvla_weights_path', default_value='/workspace/models/AsyncVLA_release'),
@@ -107,4 +125,5 @@ def generate_launch_description():
         on_started,
         on_inactive,
         follower,
+        camera,
     ])

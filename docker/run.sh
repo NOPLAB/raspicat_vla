@@ -10,6 +10,8 @@
 #                                   cmd_vel {--cpu|--gpu}   (remote+edge, no motors)
 #                                   sim  --host HOST[:PORT]
 #                                   edge-local              (omnivla_edge only)
+#                           edge/cmd_vel/edge-local also take
+#                                   --camera edge|/dev/videoN  (v4l2 camera node)
 #
 # Run `run.sh --help` for the full reference.
 set -euo pipefail
@@ -84,6 +86,17 @@ Commands:
       edge --host HOST[:PORT]       Edge stack here, talking to a cloud server
                                     at HOST:PORT (PORT defaults to $GRPC_PORT).
                                     Uses Dockerfile.real.
+
+    Camera (edge | cmd_vel | edge-local):
+      --camera edge | --camera /dev/videoN
+                                    Launch a v4l2 camera node inside the edge
+                                    container and publish frames on image_topic.
+                                    'edge' is a preset for the default device
+                                    (/dev/video0); otherwise pass an explicit
+                                    device path. The device is handed to the
+                                    container via `docker run --device`. Omit to
+                                    feed frames some other way (a camera launched
+                                    outside, tools/publish_fake_image.py, sim).
       cmd_vel {--cpu|--gpu}         All-in-one on THIS host, no real robot: one
                                     command starts BOTH the remote server (bound
                                     to 127.0.0.1) and the edge stack, in two
@@ -124,6 +137,8 @@ Examples:
   run.sh run omnivla  --mode remote --gpu --host 10.0.0.5:9000  # specific NIC + port
   run.sh run asyncvla --mode edge --host 192.168.1.2       # default port
   run.sh run asyncvla --mode edge --host 192.168.1.2:8080
+  run.sh run omnivla  --mode edge --host 192.168.1.2 --camera edge       # /dev/video0
+  run.sh run omnivla  --mode edge --host 192.168.1.2 --camera /dev/cam1  # explicit device
   run.sh run omnivla  --mode cmd_vel --gpu                 # remote+edge here, no motors
   run.sh run omnivla  --mode sim  --host 192.168.1.2:9000
   run.sh run omnivla_edge --mode edge-local               # Path 2, standalone on-edge policy (GPU)
@@ -154,6 +169,16 @@ EOF
 log()  { printf '\033[1;34m==>\033[0m %s\n' "$*" >&2; }
 warn() { printf '\033[1;33m!!\033[0m  %s\n' "$*" >&2; }
 err()  { printf '\033[1;31m!!\033[0m  %s\n' "$*" >&2; }
+
+# Resolve a --camera value to a v4l2 device path. The preset 'edge' maps to the
+# robot's default camera device (/dev/video0); any other value is taken as an
+# explicit device path (e.g. /dev/cam1, /dev/video2).
+resolve_camera_device() {
+    case $1 in
+        edge) printf '/dev/video0\n' ;;
+        *)    printf '%s\n' "$1" ;;
+    esac
+}
 
 # split_hostport HOST[:PORT] DEFAULT_HOST DEFAULT_PORT -> "HOST PORT" on stdout.
 # Empty HOST (e.g. ":8080") falls back to DEFAULT_HOST. Missing :PORT -> DEFAULT_PORT.
@@ -305,13 +330,16 @@ edge_adapter_for() {
 }
 
 # Run the edge container (Dockerfile.real, falling back to the test image when
-# real isn't built). $1 = model (for the fallback warnings); the rest is the
-# `ros2 launch ...` argv to exec inside the container. Shared by run_edge and the
-# edge half of run_cmd_vel.
+# real isn't built). $1 = model (for the fallback warnings); $2 = camera device
+# path ('' = none, else passed through to the container via --device); the rest
+# is the `ros2 launch ...` argv to exec inside the container. Shared by run_edge
+# and the edge half of run_cmd_vel.
 _run_edge_launch() {
-    local model=$1
-    shift
+    local model=$1 camera_device=$2
+    shift 2
     local launch_argv=("$@")
+    local device_args=()
+    [[ -n $camera_device ]] && device_args+=(--device "$camera_device")
     local image="${IMAGES[real]}"
     local has_real_image=true
     if ! docker image inspect "$image" >/dev/null 2>&1; then
@@ -330,6 +358,7 @@ _run_edge_launch() {
     docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
         -e RASPICAT_VLA_REBUILD \
         --network host \
+        "${device_args[@]}" \
         -v "$REPO_ROOT:/workspace" \
         -v "$HF_CACHE_DIR:/tmp/.cache/huggingface" \
         "$image" bash -lc "
@@ -342,14 +371,15 @@ _run_edge_launch() {
 }
 
 run_edge() {
-    local model=$1 host=$2 port=$3
+    local model=$1 host=$2 port=$3 camera_device=${4:-}
     local adapter_kind
     adapter_kind=$(edge_adapter_for "$model")
-    log "${model} edge (real); cloud=${host}:${port}"
-    _run_edge_launch "$model" \
+    log "${model} edge (real); cloud=${host}:${port}${camera_device:+; camera=${camera_device}}"
+    _run_edge_launch "$model" "$camera_device" \
         ros2 launch raspicat_vla_edge edge_only.launch.py \
             "remote_address:=${host}:${port}" \
             "adapter_kind:=${adapter_kind}" \
+            "camera_device:=${camera_device}" \
             with_follower:=true
 }
 
@@ -360,7 +390,7 @@ run_edge() {
 # driving the robot's motors. When the edge exits (or Ctrl-C), tear the server
 # down via the EXIT trap.
 run_cmd_vel() {
-    local model=$1 device=$2
+    local model=$1 device=$2 camera_device=${3:-}
     local port="$GRPC_PORT"
     local adapter_kind
     adapter_kind=$(edge_adapter_for "$model")
@@ -372,11 +402,12 @@ run_cmd_vel() {
     _run_remote_server "$model" "$device" "127.0.0.1" "$port" \
         -d --rm --name "$server_name" >/dev/null
 
-    log "cmd_vel: edge -> 127.0.0.1:${port}; follower publishes /cmd_vel_vla (not /cmd_vel)"
-    _run_edge_launch "$model" \
+    log "cmd_vel: edge -> 127.0.0.1:${port}; follower publishes /cmd_vel_vla (not /cmd_vel)${camera_device:+; camera=${camera_device}}"
+    _run_edge_launch "$model" "$camera_device" \
         ros2 launch raspicat_vla_bringup cmd_vel.launch.py \
             "remote_address:=127.0.0.1:${port}" \
-            "adapter_kind:=${adapter_kind}"
+            "adapter_kind:=${adapter_kind}" \
+            "camera_device:=${camera_device}"
 }
 
 run_sim() {
@@ -479,6 +510,7 @@ run_sim() {
 # CUDA (the vendored OmniVLA_edge forward pass is GPU-only) and the omnivla-edge
 # weights at models/omnivla-edge/omnivla-edge.pth.
 run_edge_local() {
+    local camera_device=${1:-}
     local image="${IMAGES[real]}"
     if ! docker image inspect "$image" >/dev/null 2>&1; then
         err "image ${image} not built; run \`run.sh build real\` first."
@@ -493,10 +525,13 @@ run_edge_local() {
     # invokes the prestart hook directly there and fails). Mirror run_remote().
     local gpu_flag="--gpus all"
     is_jetson && gpu_flag="--runtime nvidia"
-    log "omnivla_edge edge-local (image=${image}, ${gpu_flag}); standalone edge + follower"
+    local device_args=()
+    [[ -n $camera_device ]] && device_args+=(--device "$camera_device")
+    log "omnivla_edge edge-local (image=${image}, ${gpu_flag}); standalone edge + follower${camera_device:+; camera=${camera_device}}"
     # shellcheck disable=SC2086
     docker run --rm $gpu_flag --user "$(id -u):$(id -g)" -e HOME=/tmp \
         --network host \
+        "${device_args[@]}" \
         -v "$REPO_ROOT:/workspace" \
         -v "$HF_CACHE_DIR:/tmp/.cache/huggingface" \
         -v "${HOME}/.cache/clip:/tmp/.cache/clip" \
@@ -506,7 +541,8 @@ run_edge_local() {
             cd /workspace
             $(_workspace_build_cmd)
             exec ros2 launch raspicat_vla_bringup mvp_omnivla_edge.launch.py \
-                device:=cuda:0
+                device:=cuda:0 \
+                camera_device:=${camera_device}
         "
 }
 
@@ -521,7 +557,7 @@ cmd_run() {
     esac
     shift
 
-    local mode='' host='' device=''
+    local mode='' host='' device='' camera=''
     while [[ $# -gt 0 ]]; do
         case $1 in
             --mode)
@@ -538,12 +574,29 @@ cmd_run() {
             --host)
                 [[ $# -ge 2 ]] || { err "--host requires an argument"; return 1; }
                 host=$2; shift 2 ;;
+            --camera)
+                [[ $# -ge 2 ]] || { err "--camera requires an argument (edge|/dev/videoN)"; return 1; }
+                camera=$2; shift 2 ;;
             --cpu)    device=cpu; shift ;;
             --gpu)    device=gpu; shift ;;
             -h|--help) usage; return 0 ;;
             *) err "run: unknown option '$1'"; usage; return 1 ;;
         esac
     done
+
+    # --camera drives a v4l2 camera node on the edge and needs the device passed
+    # into the container, so it only applies to the edge-side modes. remote hosts
+    # no camera; sim gets its frames from Gazebo's virtual RealSense.
+    local camera_device=''
+    if [[ -n $camera ]]; then
+        case $mode in
+            edge|cmd_vel|edge_local) ;;
+            *) err "--camera is only valid for --mode edge|cmd_vel|edge-local (not '$mode')"; return 1 ;;
+        esac
+        camera_device=$(resolve_camera_device "$camera")
+        [[ -e $camera_device ]] || \
+            warn "camera device ${camera_device} not present on host; passing it through anyway (edge will fail to open it if still absent at run time)"
+    fi
 
     # --mode edge-local (Path 2, on-edge standalone policy) is only meaningful for
     # omnivla_edge. omnivla_edge additionally supports --mode remote (Path 3 server
@@ -555,7 +608,7 @@ cmd_run() {
     case $mode in
         edge_local)
             [[ -n $host ]] && warn "--host is ignored for --mode edge-local (standalone, no cloud)"
-            run_edge_local
+            run_edge_local "$camera_device"
             ;;
         remote)
             if [[ -z $device ]]; then
@@ -571,7 +624,7 @@ cmd_run() {
                 err "--mode cmd_vel requires --cpu or --gpu (for the local remote server)"; return 1
             fi
             [[ -n $host ]] && warn "--host is ignored for --mode cmd_vel (server + edge both on 127.0.0.1)"
-            run_cmd_vel "$model" "$device"
+            run_cmd_vel "$model" "$device" "$camera_device"
             ;;
         edge|sim)
             [[ -n $host ]] || { err "--mode $mode requires --host HOST[:PORT]"; return 1; }
@@ -579,7 +632,7 @@ cmd_run() {
             pair=$(split_hostport "$host" "" "$GRPC_PORT") || return 1
             read -r edge_host edge_port <<<"$pair"
             [[ -n $edge_host ]] || { err "--mode $mode --host needs a host part"; return 1; }
-            "run_$mode" "$model" "$edge_host" "$edge_port"
+            "run_$mode" "$model" "$edge_host" "$edge_port" "$camera_device"
             ;;
         '')
             err "run: missing --mode (remote|edge|cmd_vel|sim|edge-local)"; usage; return 1 ;;

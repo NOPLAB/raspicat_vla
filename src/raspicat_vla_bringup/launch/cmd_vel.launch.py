@@ -15,6 +15,8 @@ Launch args:
   remote_address  - gRPC server address (default: localhost:50051)
   adapter_kind    - stub|asyncvla|omnivla
   image_topic     - camera image topic (default: /camera/image_raw)
+  camera_device   - v4l2 device path (e.g. /dev/video0); when set, launch a
+                    v4l2_camera node publishing on image_topic. Empty = off.
   cmd_vel_topic   - follower output topic (default: /cmd_vel_vla, a non-motor topic)
 """
 import os
@@ -36,6 +38,7 @@ def generate_launch_description():
         DeclareLaunchArgument('remote_address', default_value='localhost:50051'),
         DeclareLaunchArgument('adapter_kind', default_value='stub'),
         DeclareLaunchArgument('image_topic', default_value='/camera/image_raw'),
+        DeclareLaunchArgument('camera_device', default_value=''),
         # Default to a non-motor topic so the real robot is never driven.
         DeclareLaunchArgument('cmd_vel_topic', default_value='/cmd_vel_vla'),
         IncludeLaunchDescription(
@@ -44,6 +47,7 @@ def generate_launch_description():
                 'remote_address': LaunchConfiguration('remote_address'),
                 'adapter_kind': LaunchConfiguration('adapter_kind'),
                 'image_topic': LaunchConfiguration('image_topic'),
+                'camera_device': LaunchConfiguration('camera_device'),
                 'with_follower': 'true',
                 'cmd_vel_topic': LaunchConfiguration('cmd_vel_topic'),
             }.items(),
