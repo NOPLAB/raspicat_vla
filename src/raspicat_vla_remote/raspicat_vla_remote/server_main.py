@@ -1,8 +1,9 @@
 """Entry point for the `vla_dummy_server` console script.
 
-Selects a backend (``--backend {dummy,asyncvla,omnivla}``) and hosts it via
-the generic :class:`VLAServer`. Plan 2A / 2B fill in the asyncvla / omnivla
-branches as those backends land.
+Selects a backend (``--backend {dummy,asyncvla,omnivla,omnivla_edge}``) and hosts
+it via the generic :class:`VLAServer`. ``omnivla`` is Plan 2B Path 1 (cloud runs
+OmniVLA-original); ``omnivla_edge`` is Path 3 (a remote GPU box such as a Jetson
+runs the OmniVLA-edge policy and streams waypoints to the edge).
 """
 from __future__ import annotations
 
@@ -52,12 +53,30 @@ def _build_backend(args: argparse.Namespace):
             resume_step=args.resume_step,
             device=args.device,
         )
+    if args.backend == 'omnivla_edge':
+        # Plan 2B Path 3: run the OmniVLA-edge policy remotely (e.g. on a Jetson)
+        # and stream waypoints to a Raspberry Pi. --vla-path is the .pth weights
+        # file (not a checkpoint dir); --resume-step is unused.
+        try:
+            from .backends.omnivla_edge import OmniVLAEdgeBackend
+        except ImportError as exc:
+            raise SystemExit(
+                f'--backend omnivla_edge not available ({exc}); '
+                'needs torch + clip + efficientnet_pytorch and raspicat_vla_edge '
+                'on PYTHONPATH',
+            )
+        return OmniVLAEdgeBackend(
+            weights_path=args.vla_path,
+            clip_type=args.clip_type,
+            device=args.device,
+        )
     raise SystemExit(f'unknown --backend {args.backend!r}')
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description='VLA gRPC server (dummy/asyncvla/omnivla)')
-    parser.add_argument('--backend', default='dummy', choices=['dummy', 'asyncvla', 'omnivla'])
+    parser = argparse.ArgumentParser(description='VLA gRPC server (dummy/asyncvla/omnivla/omnivla_edge)')
+    parser.add_argument('--backend', default='dummy',
+                        choices=['dummy', 'asyncvla', 'omnivla', 'omnivla_edge'])
     parser.add_argument('--host', default='0.0.0.0')
     parser.add_argument('--port', type=int, default=50051)
     parser.add_argument('--log-level', default='INFO')
@@ -73,6 +92,8 @@ def main() -> None:
                         help='checkpoint dir (omnivla: ./models/omnivla-original; asyncvla: ./models/AsyncVLA_release)')
     parser.add_argument('--resume-step', type=int, default=120000)
     parser.add_argument('--device', default='cuda:0')
+    # OmniVLA-edge (Path 3) only. --vla-path doubles as the .pth weights file.
+    parser.add_argument('--clip-type', default='ViT-B/32')
 
     args = parser.parse_args()
 

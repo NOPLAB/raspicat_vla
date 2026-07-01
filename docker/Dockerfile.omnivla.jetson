@@ -84,6 +84,18 @@ RUN pip3 install --no-cache-dir \
 # inference (PyTorch SDPA fallback); uncomment if attention is the bottleneck.
 # RUN pip3 install --no-cache-dir --index-url "${TORCH_INDEX_URL}" 'flash-attn==2.8.3'
 
+# --------------------------------------------- OmniVLA-edge (Plan 2B Path 3) deps
+# The omnivla_edge backend runs the full OmniVLA-edge policy + CLIP ViT-B/32 on
+# this Jetson and streams waypoints to the Pi. efficientnet_pytorch is the obs
+# encoder; CLIP is installed --no-deps so it can't swap the CUDA-enabled Jetson
+# torch wheel for a generic one, with ftfy/regex/tqdm its runtime deps.
+# setuptools 59.6.0 keeps CLIP's legacy setup.py from tripping on newer setuptools.
+# Not needed by Path 1 (--backend omnivla) but harmless there.
+RUN pip3 install --no-cache-dir --no-deps 'efficientnet_pytorch>=0.7.1' \
+    && pip3 install --no-cache-dir 'setuptools==59.6.0' wheel \
+    && pip3 install --no-cache-dir 'ftfy' 'regex' 'tqdm' \
+    && pip3 install --no-cache-dir --no-deps --no-build-isolation 'git+https://github.com/openai/CLIP.git'
+
 # Vendor OmniVLA's `prismatic` package on PYTHONPATH WITHOUT pulling its
 # training-time deps. Identical treatment to Dockerfile.omnivla (see that file
 # for why each __init__.py is blanked).

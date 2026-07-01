@@ -54,6 +54,18 @@ RUN pip3 install --no-cache-dir \
 # RUN pip3 install --no-cache-dir packaging ninja \
 #     && pip3 install --no-cache-dir 'flash-attn==2.5.5' --no-build-isolation
 
+# --------------------------------------------- OmniVLA-edge (Plan 2B Path 3) deps
+# The omnivla_edge backend runs the full OmniVLA-edge policy + CLIP ViT-B/32 on
+# this (remote/Jetson) box and streams waypoints to the Pi. efficientnet_pytorch
+# is the obs encoder; CLIP is installed --no-deps so it can't touch the pinned
+# torch, with ftfy/regex/tqdm its runtime deps. setuptools 59.6.0 keeps CLIP's
+# legacy setup.py from tripping canonicalize_version on newer setuptools.
+# Not needed by Path 1 (--backend omnivla) but harmless there.
+RUN pip3 install --no-cache-dir --no-deps 'efficientnet_pytorch>=0.7.1' \
+    && pip3 install --no-cache-dir 'setuptools==59.6.0' wheel \
+    && pip3 install --no-cache-dir 'ftfy' 'regex' 'tqdm' \
+    && pip3 install --no-cache-dir --no-deps --no-build-isolation 'git+https://github.com/openai/CLIP.git'
+
 # Vendor OmniVLA's `prismatic` package WITHOUT pulling its training-time deps
 # (tensorflow / dlimp / draccus / wandb / json-numpy / etc.). Several `__init__.py`
 # files re-export training-only modules; we blank those so submodule imports the

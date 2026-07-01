@@ -10,6 +10,9 @@
   <buildtool_depend>ament_python</buildtool_depend>
 
   <exec_depend>raspicat_vla_proto</exec_depend>
+  <!-- Path 3 (omnivla_edge backend) reuses the ROS-free OmniVLAEdgeEngine that
+       lives in the edge package. Only used when --backend omnivla_edge. -->
+  <exec_depend>raspicat_vla_edge</exec_depend>
 
   <test_depend>python3-pytest</test_depend>
 

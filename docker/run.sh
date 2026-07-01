@@ -32,8 +32,12 @@ is_jetson() {
 declare -A IMAGES=(
     [asyncvla]="raspicat-vla-asyncvla"
     [omnivla]="raspicat-vla-omnivla"
+    # omnivla_edge (Path 3) reuses the OmniVLA remote image (it adds CLIP +
+    # efficientnet); the remote backend just loads a different checkpoint.
+    [omnivla_edge]="raspicat-vla-omnivla"
     [asyncvla-jetson]="raspicat-vla-asyncvla-jetson"
     [omnivla-jetson]="raspicat-vla-omnivla-jetson"
+    [omnivla_edge-jetson]="raspicat-vla-omnivla-jetson"
     [test]="raspicat-vla-test"
     [real]="raspicat-vla-real"
     [sim]="raspicat-vla-sim"
@@ -50,10 +54,13 @@ declare -A DOCKERFILES=(
 declare -A RESUME_STEP=(
     [asyncvla]=750000
     [omnivla]=120000
+    [omnivla_edge]=0      # unused: omnivla-edge.pth is a bare state_dict
 )
 declare -A WEIGHTS_DIR=(
     [asyncvla]="/workspace/models/AsyncVLA_release"
     [omnivla]="/workspace/models/omnivla-original"
+    # For omnivla_edge --vla-path is the .pth weights file, not a checkpoint dir.
+    [omnivla_edge]="/workspace/models/omnivla-edge/omnivla-edge.pth"
 )
 
 usage() {
@@ -84,6 +91,12 @@ Commands:
                                     and models/omnivla-edge/omnivla-edge.pth.
                                     Uses Dockerfile.real; GPU via --gpus all
                                     (x86) or --runtime nvidia (Jetson/L4T).
+
+    omnivla_edge modes (Plan 2B Path 3 — remote split, "Jetson infers, Pi
+    controls"): --remote runs the OmniVLA-edge policy on this GPU box (the
+    omnivla image + omnivla-edge.pth); the Pi side runs --real/--sim with the
+    light path-only adapter (adapter_kind=omnivla, no torch). Path 2's
+    --edge-local runs the whole thing on one CUDA box instead.
   test [PYTEST_ARGS...]   Run pytest in raspicat-vla-test (CPU). Auto-builds
                           the image if missing. Pass extra args to pytest:
                             run.sh test                        # full suite
@@ -102,6 +115,8 @@ Examples:
   run.sh run asyncvla --real --host 192.168.1.2:8080
   run.sh run omnivla  --sim  --host 192.168.1.2:9000
   run.sh run omnivla_edge --edge-local                     # Path 2, standalone on-edge policy (GPU)
+  run.sh run omnivla_edge --remote --gpu                   # Path 3, OmniVLA-edge server (Jetson)
+  run.sh run omnivla_edge --real --host 192.168.1.2        # Path 3, Pi edge -> Jetson server
   run.sh test                                              # full pytest suite
   run.sh test -k omnivla                                   # filter by name
 
@@ -231,7 +246,7 @@ run_remote() {
         -v "$HF_CACHE_DIR:/root/.cache/huggingface" \
         "$image" bash -lc "
             cd /workspace
-            export PYTHONPATH=/workspace/src/raspicat_vla_proto:/workspace/src/raspicat_vla_remote\${PYTHONPATH:+:\$PYTHONPATH}
+            export PYTHONPATH=/workspace/src/raspicat_vla_proto:/workspace/src/raspicat_vla_remote:/workspace/src/raspicat_vla_edge\${PYTHONPATH:+:\$PYTHONPATH}
             exec python3 -m raspicat_vla_remote.server_main \
                 --backend ${model} \
                 --host ${bind_host} \
@@ -258,9 +273,19 @@ source install/setup.bash
 BUILD
 }
 
+# The edge-side adapter_kind for a remote MODEL. omnivla_edge (Path 3) runs the
+# policy on the remote box, so the Pi uses the light path-only 'omnivla' adapter;
+# every other model's edge adapter matches the model name.
+edge_adapter_for() {
+    local model=$1
+    if [[ $model == omnivla_edge ]]; then printf 'omnivla\n'; else printf '%s\n' "$model"; fi
+}
+
 run_real() {
     local model=$1 host=$2 port=$3
     local image="${IMAGES[real]}"
+    local adapter_kind
+    adapter_kind=$(edge_adapter_for "$model")
     local has_real_image=true
     if ! docker image inspect "$image" >/dev/null 2>&1; then
         has_real_image=false
@@ -288,7 +313,7 @@ run_real() {
             $(_workspace_build_cmd)
             exec ros2 launch raspicat_vla_edge edge_only.launch.py \
                 remote_address:=${host}:${port} \
-                adapter_kind:=${model} \
+                adapter_kind:=${adapter_kind} \
                 with_follower:=true
         "
 }
@@ -296,6 +321,8 @@ run_real() {
 run_sim() {
     local model=$1 host=$2 port=$3
     local image="${IMAGES[sim]}"
+    local adapter_kind
+    adapter_kind=$(edge_adapter_for "$model")
     if ! docker image inspect "$image" >/dev/null 2>&1; then
         warn "image ${image} not built; falling back to ${IMAGES[test]} (no Gazebo)."
         warn "run \`run.sh build sim\` for the full sim image with Gazebo + raspicat_sim."
@@ -312,7 +339,7 @@ run_sim() {
                 $(_workspace_build_cmd)
                 exec ros2 launch raspicat_vla_edge edge_only.launch.py \
                     remote_address:=${host}:${port} \
-                    adapter_kind:=${model} \
+                    adapter_kind:=${adapter_kind} \
                     with_follower:=true
             "
         return
@@ -380,7 +407,7 @@ run_sim() {
             $(_workspace_build_cmd)
             exec ros2 launch raspicat_vla_bringup mvp_sim.launch.py \
                 remote_address:=${host}:${port} \
-                adapter_kind:=${model}
+                adapter_kind:=${adapter_kind}
         "
 }
 
@@ -449,11 +476,9 @@ cmd_run() {
         esac
     done
 
-    # omnivla_edge (Path 2) is single-host only; the other models don't have a
-    # local policy to run on the edge.
-    if [[ $model == omnivla_edge && $mode != edge_local ]]; then
-        err "omnivla_edge only supports --edge-local (got mode '${mode:-none}')"; return 1
-    fi
+    # --edge-local (Path 2, on-edge standalone policy) is only meaningful for
+    # omnivla_edge. omnivla_edge additionally supports --remote (Path 3 server on
+    # a GPU box / Jetson) and --real/--sim (the Pi-side edge, path-only adapter).
     if [[ $model != omnivla_edge && $mode == edge_local ]]; then
         err "--edge-local is only valid for model omnivla_edge"; return 1
     fi
