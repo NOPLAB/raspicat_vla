@@ -20,15 +20,14 @@ Use cases:
   ros2 launch raspicat_vla_bringup edge_only.launch.py \\
       remote_address:=192.168.1.2:50051 adapter_kind:=asyncvla with_follower:=true
 """
-import os
-
-from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess, RegisterEventHandler, TimerAction
-from launch.conditions import IfCondition, LaunchConfigurationEquals
-from launch.event_handlers import OnProcessExit, OnProcessStart
+from launch.actions import DeclareLaunchArgument
+from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
-from launch_ros.actions import LifecycleNode, Node
+
+from raspicat_vla_edge.launch_util import (
+    camera_nodes, edge_lifecycle_actions, edge_params_path, follower_node,
+)
 
 
 def generate_launch_description():
@@ -42,11 +41,6 @@ def generate_launch_description():
     asyncvla_resume_step = LaunchConfiguration('asyncvla_resume_step')
     asyncvla_device = LaunchConfiguration('asyncvla_device')
 
-    config = os.path.join(
-        get_package_share_directory('raspicat_vla_edge'),
-        'config', 'edge_params.yaml',
-    )
-
     # Per-launch parameter overrides; only emit the ones that were set explicitly
     # (default '' means "leave the YAML value alone").
     overrides = {
@@ -58,77 +52,11 @@ def generate_launch_description():
         'asyncvla_device': asyncvla_device,
     }
 
-    edge = LifecycleNode(
-        package='raspicat_vla_edge',
-        executable='vla_edge_node',
-        name='vla_edge_node',
-        namespace='',
-        output='screen',
-        parameters=[config, overrides],
-    )
-    # Drive the lifecycle transitions by shelling out to `ros2 lifecycle set`.
-    # launch_ros's EmitEvent(ChangeState) proved unreliable on slow hosts
-    # (Jetson): the event was silently dropped and the node stayed
-    # 'unconfigured' even with a startup delay, whereas an explicit
-    # `ros2 lifecycle set` always succeeded. configure runs a few seconds after
-    # the process starts (so its change_state service is up); activate runs once
-    # the configure process exits (i.e. the node has reached 'inactive').
-    node_name = '/vla_edge_node'
-    configure_cmd = ExecuteProcess(
-        cmd=['ros2', 'lifecycle', 'set', node_name, 'configure'],
-        output='screen',
-    )
-    activate_cmd = ExecuteProcess(
-        cmd=['ros2', 'lifecycle', 'set', node_name, 'activate'],
-        output='screen',
-    )
-    on_started = RegisterEventHandler(
-        OnProcessStart(
-            target_action=edge,
-            on_start=[TimerAction(period=4.0, actions=[configure_cmd])],
-        ),
-    )
-    on_configured = RegisterEventHandler(
-        OnProcessExit(target_action=configure_cmd, on_exit=[activate_cmd]),
-    )
+    edge_actions = edge_lifecycle_actions(parameters=[edge_params_path(), overrides])
 
-    follower = Node(
-        package='raspicat_vla_edge',
-        executable='path_follower_node',
-        name='path_follower_node',
-        output='screen',
-        parameters=[{
-            'max_v': 0.4, 'max_w': 1.0, 'rate_hz': 20.0,
-            'cmd_vel_topic': cmd_vel_topic,
-        }],
+    follower = follower_node(
+        cmd_vel_topic=cmd_vel_topic,
         condition=IfCondition(with_follower),
-    )
-
-    # Optional camera driver, selected by camera_kind (empty = none). Both
-    # variants are remapped to publish raw sensor_msgs/Image on image_topic.
-    #  - v4l2:      generic UVC/USB webcam on camera_device (output 'image_raw').
-    #  - realsense: Intel RealSense; realsense2_camera prefixes its topics with the
-    #               node name, so the color stream is published on the fully
-    #               qualified '/camera/color/image_raw' (NOT the relative
-    #               'color/image_raw' — a relative remap FROM expands under the
-    #               '' namespace to '/color/image_raw' and silently never matches).
-    camera_v4l2 = Node(
-        package='v4l2_camera',
-        executable='v4l2_camera_node',
-        name='camera',
-        output='screen',
-        parameters=[{'video_device': camera_device}],
-        remappings=[('image_raw', image_topic)],
-        condition=LaunchConfigurationEquals('camera_kind', 'v4l2'),
-    )
-    camera_realsense = Node(
-        package='realsense2_camera',
-        executable='realsense2_camera_node',
-        name='camera',
-        namespace='',
-        output='screen',
-        remappings=[('/camera/color/image_raw', image_topic)],
-        condition=LaunchConfigurationEquals('camera_kind', 'realsense'),
     )
 
     return LaunchDescription([
@@ -142,10 +70,7 @@ def generate_launch_description():
         DeclareLaunchArgument('asyncvla_weights_path', default_value='/workspace/models/AsyncVLA_release'),
         DeclareLaunchArgument('asyncvla_resume_step', default_value='750000'),
         DeclareLaunchArgument('asyncvla_device', default_value='cpu'),
-        edge,
-        on_started,
-        on_configured,
+        *edge_actions,
         follower,
-        camera_v4l2,
-        camera_realsense,
+        *camera_nodes(image_topic=image_topic, camera_device=camera_device),
     ])

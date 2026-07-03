@@ -17,6 +17,9 @@
   <exec_depend>diagnostic_msgs</exec_depend>
   <exec_depend>lifecycle_msgs</exec_depend>
   <exec_depend>cv_bridge</exec_depend>
+  <!-- launch_util.py (shared launch building blocks) imports these. -->
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
   <!-- Optional camera drivers, launched by edge_only.launch.py when
        camera_kind is set (v4l2 = webcam, realsense = Intel RealSense). -->
   <exec_depend>v4l2_camera</exec_depend>
