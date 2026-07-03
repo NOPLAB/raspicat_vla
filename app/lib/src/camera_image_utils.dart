@@ -27,13 +27,17 @@ img.Image _yuv420ToRgb(CameraImage image) {
   final height = image.height;
   final out = img.Image(width: width, height: height);
 
+  // 3 プレーン (Android: Y/U/V 分離) と 2 プレーン (iOS: NV12, CbCr
+  // インターリーブ) の両対応。NV12 では V は U の隣バイトにある。
   final yPlane = image.planes[0];
   final uPlane = image.planes[1];
-  final vPlane = image.planes[2];
+  final biPlanar = image.planes.length < 3;
+  final vPlane = biPlanar ? uPlane : image.planes[2];
+  final vByteShift = biPlanar ? 1 : 0;
 
   final yRowStride = yPlane.bytesPerRow;
   final uvRowStride = uPlane.bytesPerRow;
-  final uvPixelStride = uPlane.bytesPerPixel ?? 1;
+  final uvPixelStride = uPlane.bytesPerPixel ?? (biPlanar ? 2 : 1);
 
   final yBytes = yPlane.bytes;
   final uBytes = uPlane.bytes;
@@ -46,7 +50,7 @@ img.Image _yuv420ToRgb(CameraImage image) {
       final yValue = yBytes[yRow + x];
       final uvCol = (x >> 1) * uvPixelStride;
       final uValue = uBytes[uvRow + uvCol];
-      final vValue = vBytes[uvRow + uvCol];
+      final vValue = vBytes[uvRow + uvCol + vByteShift];
 
       // BT.601 full-range 変換。
       final yv = yValue.toDouble();

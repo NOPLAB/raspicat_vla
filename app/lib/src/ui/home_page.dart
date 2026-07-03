@@ -6,6 +6,7 @@
 library;
 
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
@@ -95,7 +96,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         back,
         preset,
         enableAudio: false,
-        imageFormatGroup: ImageFormatGroup.yuv420,
+        // iOS の yuv420 は 2 プレーン NV12 (video-range) で来るため、ネイティブに
+        // 安くフルレンジな BGRA を使う。Android は従来どおり YUV420。
+        imageFormatGroup:
+            Platform.isIOS ? ImageFormatGroup.bgra8888 : ImageFormatGroup.yuv420,
       );
       try {
         await c.initialize();

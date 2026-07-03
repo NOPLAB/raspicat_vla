@@ -4,6 +4,8 @@
 <dict>
 	<key>NSCameraUsageDescription</key>
 	<string>OmniVLA ナビゲーションの観測にカメラ映像を使用します。</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>ローカルネットワーク上の Raspberry Pi へアクションチャンクを gRPC 送信するために使用します。</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>
