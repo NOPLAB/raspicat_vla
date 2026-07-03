@@ -572,6 +572,10 @@ class VLAEdgeNode(LifecycleNode):
 
         if status in (EmbeddingCache.STATUS_WAITING, EmbeddingCache.STATUS_STALE):
             # Empty path → follower emits zero Twist (safe-stop).
+            self.get_logger().warn(
+                f'embedding {status}; publishing empty path (safe-stop)',
+                throttle_duration_sec=2.0,
+            )
             self._path_pub.publish(path)
             return
 
