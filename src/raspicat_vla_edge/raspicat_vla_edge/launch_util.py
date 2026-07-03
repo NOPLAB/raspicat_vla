@@ -17,6 +17,7 @@ from ament_index_python.packages import get_package_share_directory
 from launch.actions import ExecuteProcess, RegisterEventHandler, TimerAction
 from launch.conditions import LaunchConfigurationEquals
 from launch.event_handlers import OnProcessExit, OnProcessStart
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import LifecycleNode, Node
 
 
@@ -93,28 +94,38 @@ def follower_node(*, condition=None, **params) -> Node:
     )
 
 
-def camera_nodes(*, image_topic, camera_device) -> list:
-    """Optional camera drivers, selected by the ``camera_kind`` launch config.
+def edge_camera_overrides() -> dict:
+    """Edge-node parameter overrides wiring the ``camera_kind`` launch config.
 
-    Empty camera_kind (the default) starts neither node. Both variants are
-    remapped to publish raw sensor_msgs/Image on ``image_topic``:
-     - v4l2:      generic UVC/USB webcam on camera_device (output 'image_raw').
-     - realsense: Intel RealSense; realsense2_camera prefixes its topics with the
-                  node name, so the color stream is published on the fully
-                  qualified '/camera/color/image_raw' (NOT the relative
-                  'color/image_raw' — a relative remap FROM expands under the
-                  '' namespace to '/color/image_raw' and silently never matches).
+    ``camera_kind=v4l2`` hands ``camera_device`` to the edge node, which then
+    grabs the device *in-process* — no separate driver process and no 30 fps
+    raw-Image DDS hop, both of which starve a Pi-class CPU. Anything else
+    yields ``''`` so the edge subscribes to ``image_topic`` as before
+    (realsense keeps its own driver node, see :func:`camera_nodes`).
+
+    Merge the returned dict into the edge's parameter overrides.
+    """
+    return {
+        'camera_device': PythonExpression([
+            "'", LaunchConfiguration('camera_device'),
+            "' if '", LaunchConfiguration('camera_kind'), "' == 'v4l2' else ''",
+        ]),
+    }
+
+
+def camera_nodes(*, image_topic) -> list:
+    """Optional camera driver nodes, selected by the ``camera_kind`` config.
+
+    Only realsense needs one: librealsense enumerates USB itself and can't be
+    trivially run inside the edge node. Plain v4l2 devices are captured
+    in-process by the edge (see :func:`edge_camera_overrides`), so no v4l2
+    driver node is launched any more. realsense2_camera prefixes its topics
+    with the node name, so the color stream is remapped from the fully
+    qualified '/camera/color/image_raw' (NOT the relative 'color/image_raw' —
+    a relative remap FROM expands under the '' namespace to
+    '/color/image_raw' and silently never matches).
     """
     return [
-        Node(
-            package='v4l2_camera',
-            executable='v4l2_camera_node',
-            name='camera',
-            output='screen',
-            parameters=[{'video_device': camera_device}],
-            remappings=[('image_raw', image_topic)],
-            condition=LaunchConfigurationEquals('camera_kind', 'v4l2'),
-        ),
         Node(
             package='realsense2_camera',
             executable='realsense2_camera_node',

@@ -105,17 +105,19 @@ Commands:
 
     Camera (edge | cmd_vel | edge-local):
       --camera edge|realsense|/dev/videoN
-                                    Launch a camera node inside the edge
-                                    container and publish frames on image_topic.
+                                    Give the edge its camera frames directly.
                                       edge        v4l2 webcam, default device
                                                   (/dev/video0) — a preset.
                                       /dev/videoN v4l2 webcam, explicit device.
-                                                  Both are passed in via
+                                                  v4l2 devices are grabbed
+                                                  IN-PROCESS by the edge node
+                                                  (no driver node, no DDS image
+                                                  hop); passed in via
                                                   `docker run --device`.
-                                      realsense   Intel RealSense (realsense2_
-                                                  camera); the container runs
-                                                  privileged with /dev bind-
-                                                  mounted for USB access.
+                                      realsense   Intel RealSense (separate
+                                                  realsense2_camera node); the
+                                                  container runs privileged with
+                                                  /dev bind-mounted for USB.
                                     Omit to feed frames some other way (a camera
                                     launched outside, publish_fake_image.py, sim).
       cmd_vel {--cpu|--gpu}         All-in-one on THIS host, no real robot: one

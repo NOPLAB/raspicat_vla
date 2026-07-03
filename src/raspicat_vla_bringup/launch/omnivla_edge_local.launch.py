@@ -19,7 +19,8 @@ from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 
 from raspicat_vla_edge.launch_util import (
-    camera_nodes, edge_lifecycle_actions, edge_params_path, follower_node,
+    camera_nodes, edge_camera_overrides, edge_lifecycle_actions,
+    edge_params_path, follower_node,
 )
 
 
@@ -27,13 +28,14 @@ def generate_launch_description():
     weights_path = LaunchConfiguration('weights_path')
     device = LaunchConfiguration('device')
     image_topic = LaunchConfiguration('image_topic')
-    camera_device = LaunchConfiguration('camera_device')
 
     edge_actions = edge_lifecycle_actions(parameters=[edge_params_path(), {
         'adapter_kind': 'omnivla_edge_local',
         'omnivla_edge_weights_path': weights_path,
         'omnivla_edge_device': device,
         'image_topic': image_topic,
+        # camera_kind=v4l2 -> the edge grabs camera_device in-process.
+        **edge_camera_overrides(),
     }])
 
     return LaunchDescription([
@@ -46,5 +48,5 @@ def generate_launch_description():
         DeclareLaunchArgument('camera_device', default_value=''),
         *edge_actions,
         follower_node(),
-        *camera_nodes(image_topic=image_topic, camera_device=camera_device),
+        *camera_nodes(image_topic=image_topic),
     ])

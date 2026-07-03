@@ -10,6 +10,7 @@ import threading
 import time
 from typing import Optional
 
+import cv2
 import numpy as np
 import rclpy
 from cv_bridge import CvBridge
@@ -130,6 +131,14 @@ class VLAEdgeNode(LifecycleNode):
         self._last_diag_log_ns = 0
         # Duration of the most recent adapter inference, for the diag line.
         self._last_predict_ms = 0.0
+        # In-process camera capture (used when the `camera_device` parameter is
+        # set): the edge grabs the V4L2 device directly instead of subscribing
+        # to a separate driver node's topic. One process fewer on the robot and
+        # no 30 fps raw-Image DDS hop — both matter on a Pi where CPU contention
+        # was starving the camera feed.
+        self._camera_cap: Optional[cv2.VideoCapture] = None
+        self._camera_thread: Optional[threading.Thread] = None
+        self._camera_stop = threading.Event()
         # Callback groups: rclpy puts every callback in ONE mutually exclusive
         # group by default, so a CPU-heavy adapter inference in the action tick
         # blocks the image callback for its whole duration — on a Pi the camera
@@ -169,6 +178,12 @@ class VLAEdgeNode(LifecycleNode):
         self.declare_parameter('embedding_hard_timeout_sec', 15.0)
         self.declare_parameter('goal_tolerance_m', 0.3)
         self.declare_parameter('image_topic', '/camera/image_raw')
+        # Non-empty = grab this V4L2 device in-process instead of subscribing
+        # to image_topic. 0 / 0.0 leave the driver defaults untouched.
+        self.declare_parameter('camera_device', '')
+        self.declare_parameter('camera_width', 0)
+        self.declare_parameter('camera_height', 0)
+        self.declare_parameter('camera_fps', 0.0)
         self.declare_parameter('goal_topic', '/raspicat_vla/goal')
         self.declare_parameter('path_topic', '/raspicat_vla/predicted_path')
         self.declare_parameter('status_topic', '/raspicat_vla/status')
@@ -220,14 +235,24 @@ class VLAEdgeNode(LifecycleNode):
         status_topic = self.get_parameter('status_topic').value
         emb_topic = self.get_parameter('embedding_debug_topic').value
 
-        # depth=1 + BEST_EFFORT: always hand the callback the newest frame.
-        # A deeper queue re-delivers a backlog of stale frames whenever the
-        # executor was busy, which defeats the freshness guard's purpose.
-        image_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
-        self._image_sub = self.create_subscription(
-            Image, image_topic, self._on_image, image_qos,
-            callback_group=self._io_group,
-        )
+        camera_device = str(self.get_parameter('camera_device').value)
+        if camera_device:
+            # In-process capture: the edge owns the camera; no subscription.
+            if not self._open_camera(camera_device):
+                return TransitionCallbackReturn.FAILURE
+            self.get_logger().info(
+                f'grabbing camera {camera_device} in-process '
+                f'(image_topic {image_topic!r} is NOT subscribed)'
+            )
+        else:
+            # depth=1 + BEST_EFFORT: always hand the callback the newest frame.
+            # A deeper queue re-delivers a backlog of stale frames whenever the
+            # executor was busy, which defeats the freshness guard's purpose.
+            image_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
+            self._image_sub = self.create_subscription(
+                Image, image_topic, self._on_image, image_qos,
+                callback_group=self._io_group,
+            )
         # Goals are latched: control.py publishes a single goal with
         # TRANSIENT_LOCAL durability and exits. A VOLATILE reader only gets
         # samples published *after* the match is established, so on a slow host
@@ -249,6 +274,12 @@ class VLAEdgeNode(LifecycleNode):
 
     def on_activate(self, state: State) -> TransitionCallbackReturn:  # noqa: ARG002
         self.get_logger().info('on_activate')
+        if self._camera_cap is not None:
+            self._camera_stop.clear()
+            self._camera_thread = threading.Thread(
+                target=self._camera_loop, name='camera-capture', daemon=True,
+            )
+            self._camera_thread.start()
         act_rate = float(self.get_parameter('action_rate_hz').value)
         # In local mode there is no cloud: skip the gRPC client and the
         # observation-send loop; the action loop drives the local policy directly.
@@ -273,6 +304,10 @@ class VLAEdgeNode(LifecycleNode):
 
     def on_deactivate(self, state: State) -> TransitionCallbackReturn:  # noqa: ARG002
         self.get_logger().info('on_deactivate')
+        if self._camera_thread is not None:
+            self._camera_stop.set()
+            self._camera_thread.join(timeout=2.0)
+            self._camera_thread = None
         for t in (self._send_timer, self._action_timer, self._status_timer):
             if t is not None:
                 self.destroy_timer(t)
@@ -281,6 +316,9 @@ class VLAEdgeNode(LifecycleNode):
 
     def on_cleanup(self, state: State) -> TransitionCallbackReturn:  # noqa: ARG002
         self.get_logger().info('on_cleanup')
+        if self._camera_cap is not None:
+            self._camera_cap.release()
+            self._camera_cap = None
         if self._client is not None:
             self._client.stop()
         self._client = None
@@ -308,6 +346,56 @@ class VLAEdgeNode(LifecycleNode):
         if self._client is not None:
             self._client.stop()
         return TransitionCallbackReturn.SUCCESS
+
+    # ---------------------------------------------------------- camera (v4l2)
+
+    def _open_camera(self, device: str) -> bool:
+        """Open the V4L2 device for in-process capture. False on failure.
+
+        Called from on_configure; a failed open fails the transition, and the
+        launch-side retry loop keeps re-running configure until the device is
+        available.
+        """
+        cap = cv2.VideoCapture(device, cv2.CAP_V4L2)
+        if not cap.isOpened():
+            self.get_logger().error(f'cannot open camera device {device}')
+            cap.release()
+            return False
+        width = int(self.get_parameter('camera_width').value)
+        height = int(self.get_parameter('camera_height').value)
+        fps = float(self.get_parameter('camera_fps').value)
+        if width > 0:
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+        if height > 0:
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        if fps > 0.0:
+            cap.set(cv2.CAP_PROP_FPS, fps)
+        # Keep the driver queue at one frame so read() always returns the
+        # newest capture instead of a backlog (same rationale as the
+        # depth=1 subscription QoS).
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        self._camera_cap = cap
+        return True
+
+    def _camera_loop(self) -> None:
+        """Capture thread: read frames at the driver's pace into _latest_image.
+
+        cv2.VideoCapture.read() blocks until the next frame, so this thread is
+        naturally rate-limited by the camera. Failures are logged and retried —
+        the freshness guard downstream safe-stops the robot if frames actually
+        stop flowing.
+        """
+        while not self._camera_stop.is_set():
+            ok, frame_bgr = self._camera_cap.read()
+            if not ok:
+                self.get_logger().warn(
+                    'camera read failed; retrying', throttle_duration_sec=5.0)
+                time.sleep(0.1)
+                continue
+            rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+            with self._latest_image_lock:
+                self._latest_image = rgb
+                self._latest_image_stamp_ns = time.monotonic_ns()
 
     # ----------------------------------------------------------- subscribers
 

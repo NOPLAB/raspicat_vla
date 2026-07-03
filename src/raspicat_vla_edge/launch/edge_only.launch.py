@@ -4,10 +4,11 @@ Optional launch args (override edge_params.yaml):
   remote_address  - gRPC server address (default: from yaml, typically localhost:50051)
   adapter_kind    - stub|asyncvla|omnivla
   image_topic     - camera image topic (default: /camera/image_raw; raspicat_sim uses /camera/color/image_raw)
-  camera_kind     - ''|v4l2|realsense. Empty (default) = no camera node (frames
-                    come from elsewhere). v4l2 launches a v4l2_camera node on
-                    camera_device; realsense launches a realsense2_camera node.
-                    Either is remapped to publish on image_topic.
+  camera_kind     - ''|v4l2|realsense. Empty (default) = the edge subscribes to
+                    image_topic (frames come from elsewhere). v4l2 = the edge
+                    node grabs camera_device IN-PROCESS (no driver node, no DDS
+                    image hop). realsense launches a realsense2_camera node
+                    remapped to publish on image_topic.
   camera_device   - v4l2 device path (e.g. /dev/video0); only used when
                     camera_kind=v4l2.
   with_follower   - true|false (also bring up path_follower_node)
@@ -26,7 +27,8 @@ from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 
 from raspicat_vla_edge.launch_util import (
-    camera_nodes, edge_lifecycle_actions, edge_params_path, follower_node,
+    camera_nodes, edge_camera_overrides, edge_lifecycle_actions,
+    edge_params_path, follower_node,
 )
 
 
@@ -34,7 +36,6 @@ def generate_launch_description():
     remote_address = LaunchConfiguration('remote_address')
     adapter_kind = LaunchConfiguration('adapter_kind')
     image_topic = LaunchConfiguration('image_topic')
-    camera_device = LaunchConfiguration('camera_device')
     with_follower = LaunchConfiguration('with_follower')
     cmd_vel_topic = LaunchConfiguration('cmd_vel_topic')
     asyncvla_weights_path = LaunchConfiguration('asyncvla_weights_path')
@@ -50,6 +51,8 @@ def generate_launch_description():
         'asyncvla_weights_path': asyncvla_weights_path,
         'asyncvla_resume_step': asyncvla_resume_step,
         'asyncvla_device': asyncvla_device,
+        # camera_kind=v4l2 -> the edge grabs camera_device in-process.
+        **edge_camera_overrides(),
     }
 
     edge_actions = edge_lifecycle_actions(parameters=[edge_params_path(), overrides])
@@ -72,5 +75,5 @@ def generate_launch_description():
         DeclareLaunchArgument('asyncvla_device', default_value='cpu'),
         *edge_actions,
         follower,
-        *camera_nodes(image_topic=image_topic, camera_device=camera_device),
+        *camera_nodes(image_topic=image_topic),
     ])
