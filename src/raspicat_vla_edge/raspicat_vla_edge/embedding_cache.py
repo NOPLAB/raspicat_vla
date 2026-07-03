@@ -18,6 +18,11 @@ class CachedEmbedding:
     embed_dim: int
     inference_ms: float
     model_version: str
+    # RGB frame (uint8 HxWx3) of the observation this embedding was computed
+    # from. Adapters that compensate for cloud latency (AsyncVLA's
+    # Edge_adapter) consume it as ``past_image_rgb``; None when the edge
+    # couldn't correlate the reply to a sent frame (e.g. after restart).
+    obs_image_rgb: Optional[np.ndarray] = None
 
 
 class EmbeddingCache:

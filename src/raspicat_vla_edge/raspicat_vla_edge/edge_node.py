@@ -113,6 +113,14 @@ class VLAEdgeNode(LifecycleNode):
         self._latest_image_lock = threading.Lock()
         self._latest_goal: Optional[GoalSpecMsg] = None
         self._latest_goal_lock = threading.Lock()
+        # frame_id -> RGB frame for observations handed to the gRPC client,
+        # so the reply's embedding can be paired with the exact frame it was
+        # computed from (AsyncVLA's Edge_adapter needs that frame as its
+        # ``past_img`` to compensate for cloud latency). Bounded FIFO: most
+        # entries are never answered because the client coalesces sends.
+        self._sent_frames: 'dict[int, np.ndarray]' = {}
+        self._sent_frames_lock = threading.Lock()
+        self._sent_frames_max = 8
         self._cache: Optional[EmbeddingCache] = None
         self._client: Optional[VLAClient] = None
         self._adapter: Optional[EdgeAdapter] = None
@@ -355,7 +363,12 @@ class VLAEdgeNode(LifecycleNode):
             image_height=h,
             goal=proto_goal,
         )
-        self._client.send(obs)
+        if self._client.send(obs):
+            with self._sent_frames_lock:
+                self._sent_frames[int(obs.frame_id)] = img
+                while len(self._sent_frames) > self._sent_frames_max:
+                    # dicts iterate in insertion order -> drop the oldest.
+                    del self._sent_frames[next(iter(self._sent_frames))]
 
     # -------------------------------------------------- callback: embeddings
 
@@ -363,6 +376,12 @@ class VLAEdgeNode(LifecycleNode):
         if self._cache is None:
             return
         arr = np.array(fp16_bytes_to_float32_list(proto_emb.embedding_fp16), dtype=np.float32)
+        with self._sent_frames_lock:
+            obs_img = self._sent_frames.pop(int(proto_emb.frame_id), None)
+            # The server answers in send order, so frames older than this
+            # reply will never be answered — drop them.
+            for fid in [f for f in self._sent_frames if f < int(proto_emb.frame_id)]:
+                del self._sent_frames[fid]
         cached = CachedEmbedding(
             frame_id=proto_emb.frame_id,
             recv_time_ns=time.monotonic_ns(),
@@ -371,6 +390,7 @@ class VLAEdgeNode(LifecycleNode):
             embed_dim=proto_emb.embed_dim,
             inference_ms=float(proto_emb.inference_ms),
             model_version=proto_emb.model_version,
+            obs_image_rgb=obs_img,
         )
         self._cache.put(cached)
         if self._embedding_pub is not None:
@@ -414,12 +434,17 @@ class VLAEdgeNode(LifecycleNode):
         emb = self._cache.get_latest_raw()  # OK or DEGRADED
         with self._latest_image_lock:
             cur = None if self._latest_image is None else self._latest_image.copy()
+        # past = the frame the embedding was computed from (run_asyncvla.py's
+        # past.png). The Edge_adapter compares it to `cur` to compensate for
+        # what happened during the cloud round trip; falling back to `cur`
+        # (no correlated frame) degrades to zero-latency behaviour.
+        past = emb.obs_image_rgb if emb.obs_image_rgb is not None else cur
         try:
             path = self._adapter.predict_path(
                 embedding=np.asarray(emb.embedding, dtype=np.float32),
                 embedding_shape=(1, int(emb.num_tokens), int(emb.embed_dim)),
                 cur_image_rgb=cur,
-                past_image_rgb=cur,
+                past_image_rgb=past,
                 frame_id='base_link',
             )
         except Exception as exc:  # noqa: BLE001
