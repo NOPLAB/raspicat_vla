@@ -16,9 +16,10 @@ from cv_bridge import CvBridge
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Path
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.lifecycle import LifecycleNode, TransitionCallbackReturn, State
-from rclpy.qos import DurabilityPolicy, QoSProfile
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Image
 
 from raspicat_vla_msgs.msg import (
@@ -127,6 +128,14 @@ class VLAEdgeNode(LifecycleNode):
         self._sent_frames_max = 8
         # Monotonic timestamp of the last action-tick diagnostic log line.
         self._last_diag_log_ns = 0
+        # Callback groups: rclpy puts every callback in ONE mutually exclusive
+        # group by default, so a CPU-heavy adapter inference in the action tick
+        # blocks the image callback for its whole duration — on a Pi the camera
+        # feed then reaches the node at <1 Hz and the freshness guard flaps
+        # (surge-and-stop driving). Isolate the heavy tick so I/O keeps flowing
+        # on the executor's other threads.
+        self._heavy_group = MutuallyExclusiveCallbackGroup()
+        self._io_group = MutuallyExclusiveCallbackGroup()
         self._cache: Optional[EmbeddingCache] = None
         self._client: Optional[VLAClient] = None
         self._adapter: Optional[EdgeAdapter] = None
@@ -209,8 +218,13 @@ class VLAEdgeNode(LifecycleNode):
         status_topic = self.get_parameter('status_topic').value
         emb_topic = self.get_parameter('embedding_debug_topic').value
 
+        # depth=1 + BEST_EFFORT: always hand the callback the newest frame.
+        # A deeper queue re-delivers a backlog of stale frames whenever the
+        # executor was busy, which defeats the freshness guard's purpose.
+        image_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
         self._image_sub = self.create_subscription(
-            Image, image_topic, self._on_image, 10,
+            Image, image_topic, self._on_image, image_qos,
+            callback_group=self._io_group,
         )
         # Goals are latched: control.py publishes a single goal with
         # TRANSIENT_LOCAL durability and exits. A VOLATILE reader only gets
@@ -222,6 +236,7 @@ class VLAEdgeNode(LifecycleNode):
         goal_qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self._goal_sub = self.create_subscription(
             GoalSpecMsg, goal_topic, self._on_goal, goal_qos,
+            callback_group=self._io_group,
         )
         self._path_pub = self.create_publisher(Path, path_topic, 10)
         self._status_pub = self.create_publisher(DiagnosticArray, status_topic, 10)
@@ -239,9 +254,19 @@ class VLAEdgeNode(LifecycleNode):
             assert self._client is not None
             self._client.start()
             obs_rate = float(self.get_parameter('obs_publish_rate_hz').value)
-            self._send_timer = self.create_timer(1.0 / obs_rate, self._send_observation_tick)
-        self._action_timer = self.create_timer(1.0 / act_rate, self._action_tick)
-        self._status_timer = self.create_timer(1.0, self._publish_status)
+            self._send_timer = self.create_timer(
+                1.0 / obs_rate, self._send_observation_tick,
+                callback_group=self._io_group,
+            )
+        # The action tick runs the adapter (CPU inference, possibly ~1 s on the
+        # robot) — keep it off the I/O group so camera/goal/send callbacks are
+        # never starved behind it.
+        self._action_timer = self.create_timer(
+            1.0 / act_rate, self._action_tick, callback_group=self._heavy_group,
+        )
+        self._status_timer = self.create_timer(
+            1.0, self._publish_status, callback_group=self._io_group,
+        )
         return super().on_activate(state)
 
     def on_deactivate(self, state: State) -> TransitionCallbackReturn:  # noqa: ARG002
