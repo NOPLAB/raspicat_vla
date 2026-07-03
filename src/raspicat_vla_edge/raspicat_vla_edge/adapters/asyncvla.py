@@ -8,8 +8,10 @@ efficientnet-b0 + transformer decoder) and the corresponding
 1. Resize / ImageNet-normalize cur + past frames to (3, 96, 96).
 2. Reshape the gRPC ActionEmbedding to ``(1, 8, 1024)``.
 3. Run ``Edge_adapter(cur, past, vla_feature)`` -> ``(1, 8, 4)`` deltas.
-4. Apply ``delta_to_pose`` to accumulate into world-frame waypoints.
-5. Build ``nav_msgs/Path`` (8 PoseStamped, base_link).
+4. Apply ``delta_to_pose`` to accumulate into world-frame waypoints
+   (still in waypoint-spacing units, like OmniVLA).
+5. Scale x/y by metric_waypoint_spacing and build ``nav_msgs/Path``
+   (8 PoseStamped, base_link, metres).
 
 Pre-requisite: ``vint_train`` from MBRA must be on PYTHONPATH at load
 time (small_head imports MultiLayerDecoder_trans). See
@@ -34,6 +36,12 @@ _LOG = logging.getLogger(__name__)
 
 _IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 _IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+
+# AsyncVLA's length unit: Edge_adapter deltas (and hence delta_to_pose output)
+# carry x/y in units of this spacing, not metres — run_asyncvla.py's
+# pd_controller multiplies the chosen waypoint by metric_waypoint_spacing
+# (run_asyncvla.py:434) before computing velocities. Same 0.1 as OmniVLA.
+_METRIC_WAYPOINT_SPACING = 0.1
 
 
 def _preprocess_for_edge_adapter(image_rgb: np.ndarray) -> np.ndarray:
@@ -164,5 +172,8 @@ class AsyncVLAEdgeAdapter(EdgeAdapter):
         with torch.no_grad():
             delta = self._model(cur, past, feat)        # (1, 8, 4)
         poses = _delta_to_pose_np(delta.cpu().numpy()) # (1, 8, 4)
-        # Waypoints are already metres (delta_to_pose accumulates world-frame poses).
-        return trajectory_to_path(poses[0], frame_id=frame_id)
+        # delta_to_pose accumulates world-frame poses but keeps x/y in
+        # waypoint-spacing units; scale to metres here (pd_controller parity).
+        return trajectory_to_path(
+            poses[0], spacing=_METRIC_WAYPOINT_SPACING, frame_id=frame_id,
+        )
