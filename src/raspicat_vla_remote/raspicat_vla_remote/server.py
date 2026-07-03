@@ -101,6 +101,20 @@ class _Servicer(raspicat_vla_pb2_grpc.VLAServiceServicer):
                 return
             arr = np.asarray(proj, dtype=np.float32)
             num_tokens, embed_dim = arr.shape[-2], arr.shape[-1]
+            # One line per request (requests arrive at ~the inference rate, so
+            # this is cheap): what the model was asked and what it produced,
+            # for field debugging without a debugger on the GPU box.
+            _LOG.info(
+                'frame=%d mode=%s pose=%s modality=%s inf=%.0fms '
+                'feat std=%.4f absmax=%.2f',
+                obs.frame_id,
+                raspicat_vla_pb2.GoalSpec.Mode.Name(obs.goal.mode),
+                None if pose is None else tuple(round(v, 2) for v in pose),
+                metrics.get('modality_id', '?'),
+                float(metrics.get('inference_ms', 0.0)),
+                float(arr.std()),
+                float(np.abs(arr).max()),
+            )
             yield raspicat_vla_pb2.ActionEmbedding(
                 frame_id=obs.frame_id,
                 server_time_ns=time.monotonic_ns(),

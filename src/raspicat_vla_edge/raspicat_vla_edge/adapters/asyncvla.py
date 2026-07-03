@@ -47,11 +47,16 @@ _METRIC_WAYPOINT_SPACING = 0.1
 def _preprocess_for_edge_adapter(image_rgb: np.ndarray) -> np.ndarray:
     """RGB uint8 HxWx3 -> (1, 3, 96, 96) ImageNet-normalized float32 ndarray.
 
-    Mirrors run_asyncvla.py:1058-1062 (TF.resize + transform).
+    Mirrors the reference two-stage resize: PIL resize to 224 (BILINEAR) then
+    TF.resize to 96 (bilinear, no antialias) — run_asyncvla.py's shead input
+    path and the training datasets' ``image_size_clip=(224,224)`` + TF.resize.
+    cv2 INTER_LINEAR matches that non-antialiased bilinear; a single
+    INTER_AREA pass from full resolution has visibly different statistics.
     """
     if image_rgb.dtype != np.uint8 or image_rgb.ndim != 3 or image_rgb.shape[2] != 3:
         raise ValueError(f'expected uint8 HxWx3 RGB, got dtype={image_rgb.dtype} shape={image_rgb.shape}')
-    img = cv2.resize(image_rgb, (96, 96), interpolation=cv2.INTER_AREA)
+    img = cv2.resize(image_rgb, (224, 224), interpolation=cv2.INTER_LINEAR)
+    img = cv2.resize(img, (96, 96), interpolation=cv2.INTER_LINEAR)
     arr = img.astype(np.float32) / 255.0
     arr = (arr - _IMAGENET_MEAN) / _IMAGENET_STD
     return np.transpose(arr, (2, 0, 1))[None, ...]
