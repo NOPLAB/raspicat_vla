@@ -40,6 +40,11 @@ def edge_lifecycle_actions(*, parameters, configure_delay_sec: float = 4.0) -> l
     ``ros2 lifecycle set`` always succeeded. configure runs a few seconds after
     the process starts (so its change_state service is up); activate runs once
     the configure process exits (i.e. the node has reached 'inactive').
+
+    Each transition is retried in a loop: a one-shot ``ros2 lifecycle set``
+    dies with "Node not found" until the CLI's discovery sees the node, and on
+    a Jetson that lag can exceed any fixed configure_delay_sec — observed >4 s
+    on an AGX Orin, leaving the edge unconfigured forever.
     """
     edge = LifecycleNode(
         package='raspicat_vla_edge',
@@ -49,14 +54,19 @@ def edge_lifecycle_actions(*, parameters, configure_delay_sec: float = 4.0) -> l
         output='screen',
         parameters=parameters,
     )
-    configure_cmd = ExecuteProcess(
-        cmd=['ros2', 'lifecycle', 'set', '/vla_edge_node', 'configure'],
-        output='screen',
-    )
-    activate_cmd = ExecuteProcess(
-        cmd=['ros2', 'lifecycle', 'set', '/vla_edge_node', 'activate'],
-        output='screen',
-    )
+
+    def _lifecycle_set_retrying(transition: str, *, attempts: int = 30) -> ExecuteProcess:
+        return ExecuteProcess(
+            cmd=['bash', '-c',
+                 f'for i in $(seq {attempts}); do '
+                 f'ros2 lifecycle set /vla_edge_node {transition} && exit 0; '
+                 f'echo "retrying edge {transition} ($i/{attempts})"; sleep 2; done; '
+                 f'echo "edge {transition} FAILED after {attempts} attempts" >&2; exit 1'],
+            output='screen',
+        )
+
+    configure_cmd = _lifecycle_set_retrying('configure')
+    activate_cmd = _lifecycle_set_retrying('activate')
     return [
         edge,
         RegisterEventHandler(OnProcessStart(
