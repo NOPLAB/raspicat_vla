@@ -21,7 +21,7 @@ from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.lifecycle import LifecycleNode, TransitionCallbackReturn, State
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import CompressedImage, Image
 
 from raspicat_vla_msgs.msg import (
     ActionEmbedding as ActionEmbeddingMsg,
@@ -177,6 +177,9 @@ class VLAEdgeNode(LifecycleNode):
         self.declare_parameter('embedding_max_age_sec', 6.0)
         self.declare_parameter('embedding_hard_timeout_sec', 15.0)
         self.declare_parameter('goal_tolerance_m', 0.3)
+        # A topic ending in '/compressed' is subscribed as CompressedImage
+        # (JPEG) instead of raw Image — use it whenever the camera lives on
+        # another host (raw 30 fps Image does not survive WiFi).
         self.declare_parameter('image_topic', '/camera/image_raw')
         # Non-empty = grab this V4L2 device in-process instead of subscribing
         # to image_topic. 0 / 0.0 leave the driver defaults untouched.
@@ -249,10 +252,20 @@ class VLAEdgeNode(LifecycleNode):
             # A deeper queue re-delivers a backlog of stale frames whenever the
             # executor was busy, which defeats the freshness guard's purpose.
             image_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
-            self._image_sub = self.create_subscription(
-                Image, image_topic, self._on_image, image_qos,
-                callback_group=self._io_group,
-            )
+            if image_topic.endswith('/compressed'):
+                # JPEG transport: 20-50x less traffic than raw Image. Essential
+                # when the camera sits on another host (e.g. the Pi's camera
+                # feeding an edge on the Jetson over WiFi — raw 30 fps Image
+                # saturates the link and frames stall for seconds).
+                self._image_sub = self.create_subscription(
+                    CompressedImage, image_topic, self._on_compressed_image,
+                    image_qos, callback_group=self._io_group,
+                )
+            else:
+                self._image_sub = self.create_subscription(
+                    Image, image_topic, self._on_image, image_qos,
+                    callback_group=self._io_group,
+                )
         # Goals are latched: control.py publishes a single goal with
         # TRANSIENT_LOCAL durability and exits. A VOLATILE reader only gets
         # samples published *after* the match is established, so on a slow host
@@ -407,6 +420,18 @@ class VLAEdgeNode(LifecycleNode):
             return
         with self._latest_image_lock:
             self._latest_image = cv_img
+            self._latest_image_stamp_ns = time.monotonic_ns()
+
+    def _on_compressed_image(self, msg: CompressedImage) -> None:
+        buf = np.frombuffer(bytes(msg.data), dtype=np.uint8)
+        bgr = cv2.imdecode(buf, cv2.IMREAD_COLOR)
+        if bgr is None:
+            self.get_logger().warn(
+                'compressed image decode failed', throttle_duration_sec=5.0)
+            return
+        rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+        with self._latest_image_lock:
+            self._latest_image = rgb
             self._latest_image_stamp_ns = time.monotonic_ns()
 
     def _ros_goal_to_edge_goal(self, goal: GoalSpecMsg) -> Optional[EdgeGoal]:

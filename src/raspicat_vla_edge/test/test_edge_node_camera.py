@@ -68,3 +68,35 @@ def test_camera_loop_stores_rgb_frame_and_stamp(node):
     assert node._latest_image[0, 0, 2] == 255
     assert node._latest_image[0, 0, 0] == 0
     assert node._latest_image_stamp_ns > 0
+
+
+def test_compressed_image_callback_decodes_jpeg_to_rgb(node):
+    import cv2
+    from sensor_msgs.msg import CompressedImage
+
+    bgr = np.zeros((32, 32, 3), dtype=np.uint8)
+    bgr[..., 0] = 255  # blue plane in BGR
+    ok, jpeg = cv2.imencode('.jpg', bgr, [cv2.IMWRITE_JPEG_QUALITY, 95])
+    assert ok
+    msg = CompressedImage()
+    msg.format = 'jpeg'
+    msg.data = jpeg.tobytes()
+
+    node._on_compressed_image(msg)
+
+    assert node._latest_image is not None
+    # Blue in BGR must land in the RGB blue channel (allow JPEG loss).
+    assert node._latest_image[16, 16, 2] > 200
+    assert node._latest_image[16, 16, 0] < 50
+    assert node._latest_image_stamp_ns > 0
+
+
+def test_compressed_topic_selects_compressed_subscription(node):
+    node.set_parameters([
+        rclpy.parameter.Parameter('image_topic', value='/camera/image_raw/compressed'),
+    ])
+    assert node.on_configure(None) == TransitionCallbackReturn.SUCCESS
+    from sensor_msgs.msg import CompressedImage
+    assert node._image_sub is not None
+    assert node._image_sub.msg_type is CompressedImage
+    node.on_cleanup(None)
