@@ -64,22 +64,23 @@ Float32List blackChw(int size) {
 
 /// pose ゴール (ロボット相対 [x, y, theta]) から (4,) の goal_pose ベクトルを作る。
 ///
-/// `_pose_goal_vector` と一致: `(rel_y/spacing, -rel_x/spacing, cos, sin)`,
-/// 半径を goalDistThresholdM でクランプ。x=前方, y=左。
+/// `_pose_goal_vector` と一致: `(x_fwd/spacing, y_left/spacing, cos, sin)`,
+/// 半径を goalDistThresholdM でクランプ。goal_pose は予測 waypoint と同じ
+/// ロボット座標系 (x=前方, y=左) を spacing 単位にしたもの。
 Float32List poseGoalVector(List<double> xyTheta) {
-  var relX = xyTheta[0];
-  var relY = xyTheta[1];
+  var xFwd = xyTheta[0];
+  var yLeft = xyTheta[1];
   final theta = xyTheta[2];
-  final radius = math.sqrt(relX * relX + relY * relY);
+  final radius = math.sqrt(xFwd * xFwd + yLeft * yLeft);
   if (radius > OmniVlaConfig.goalDistThresholdM) {
     final scale = OmniVlaConfig.goalDistThresholdM / radius;
-    relX *= scale;
-    relY *= scale;
+    xFwd *= scale;
+    yLeft *= scale;
   }
   const spacing = OmniVlaConfig.metricWaypointSpacing;
   return Float32List.fromList([
-    relY / spacing,
-    -relX / spacing,
+    xFwd / spacing,
+    yLeft / spacing,
     math.cos(theta),
     math.sin(theta),
   ]);

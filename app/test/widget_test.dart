@@ -31,11 +31,11 @@ void main() {
     expect(black.length, viaNorm.length);
   });
 
-  test('poseGoalVector は (rel_y/s, -rel_x/s, cos, sin) でクランプ', () {
-    // x=前方2m, y=左1m, theta=0
+  test('poseGoalVector は (x_fwd/s, y_left/s, cos, sin) でクランプ', () {
+    // x=前方2m, y=左1m, theta=0。goal_pose は waypoint と同じ (前方, 左) 系。
     final v = poseGoalVector([2.0, 1.0, 0.0]);
-    expect(v[0], closeTo(1.0 / OmniVlaConfig.metricWaypointSpacing, 1e-4));
-    expect(v[1], closeTo(-2.0 / OmniVlaConfig.metricWaypointSpacing, 1e-4));
+    expect(v[0], closeTo(2.0 / OmniVlaConfig.metricWaypointSpacing, 1e-4));
+    expect(v[1], closeTo(1.0 / OmniVlaConfig.metricWaypointSpacing, 1e-4));
     expect(v[2], closeTo(1.0, 1e-6)); // cos0
     expect(v[3], closeTo(0.0, 1e-6)); // sin0
 

@@ -68,7 +68,7 @@ CUDA 依存は `forward` 内の `tensor.get_device()` 1 箇所のみ。ONNX expo
 | 名前 | 形状 | 内容 |
 |------|------|------|
 | `obs_images` | `(1, 18, 96, 96)` | 直近 6 フレーム(=context_size 5 + 現在)を ImageNet正規化・CHW・古い順で連結。不足時は最古フレームで前詰め |
-| `goal_pose` | `(1, 4)` | `(rel_y/0.1, -rel_x/0.1, cos θ, sin θ)`。rel_x=前方,rel_y=左。半径 30m でクランプ。pose モード以外は 0 埋め |
+| `goal_pose` | `(1, 4)` | `(x_fwd/0.1, y_left/0.1, cos θ, sin θ)`。予測 waypoint と同じロボット座標系 (x=前方, y=左) を 0.1m 単位に正規化。半径 30m でクランプ。pose モード以外は 0 埋め |
 | `map_images` | `(1, 9, 96, 96)` | `cat(黒96, 黒96, 現在フレーム)`。衛星地図はゼロ埋め |
 | `goal_image` | `(1, 3, 96, 96)` | image モード時は目標画像を96化・正規化。他は黒画像 |
 | `modality_id` | `(1,)` int | text=7 / pose=4 / image=6 |

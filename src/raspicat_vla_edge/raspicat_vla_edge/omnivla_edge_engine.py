@@ -105,21 +105,26 @@ def _modality_id_for(mode: str) -> int:
 def _pose_goal_vector(pose_xy_theta) -> np.ndarray:
     """Build the (4,) goal_pose vector from a robot-relative pose goal.
 
-    Mirrors run_omnivla_edge.py: the model consumes
-    ``(rel_y/spacing, -rel_x/spacing, cos(dtheta), sin(dtheta))`` where rel_x is
-    forward and rel_y is left, with the range clamped to thres_dist. We assume
-    the goal x/y are already robot-relative metres (no edge tf in v1).
+    The model consumes ``(x_fwd/spacing, y_left/spacing, cos(dtheta),
+    sin(dtheta))`` — the same robot-frame (x forward, y left) convention as the
+    predicted waypoints (see train_omnivla_dataset.py:357 and the goal-star
+    plot in run_omnivla_edge.save_robot_behavior). run_omnivla_edge.py's
+    ``(relative_y, -relative_x)`` shuffle is NOT a robot-frame swap: those
+    variables live in a compass-aligned frame (rel_x=right, rel_y=forward), and
+    the shuffle converts them to exactly this (forward, left) layout. Our input
+    is already robot-relative metres (no edge tf in v1), so no swap here. Range
+    is clamped to thres_dist first.
     """
-    rel_x, rel_y, theta = float(pose_xy_theta[0]), float(pose_xy_theta[1]), float(pose_xy_theta[2])
-    radius = math.hypot(rel_x, rel_y)
+    x_fwd, y_left, theta = float(pose_xy_theta[0]), float(pose_xy_theta[1]), float(pose_xy_theta[2])
+    radius = math.hypot(x_fwd, y_left)
     if radius > _GOAL_DIST_THRESHOLD_M:
         scale = _GOAL_DIST_THRESHOLD_M / radius
-        rel_x *= scale
-        rel_y *= scale
+        x_fwd *= scale
+        y_left *= scale
     return np.array(
         [
-            rel_y / _METRIC_WAYPOINT_SPACING,
-            -rel_x / _METRIC_WAYPOINT_SPACING,
+            x_fwd / _METRIC_WAYPOINT_SPACING,
+            y_left / _METRIC_WAYPOINT_SPACING,
             math.cos(theta),
             math.sin(theta),
         ],

@@ -36,19 +36,19 @@ def test_modality_id_for_rejects_unknown():
 
 # --------------------------------------------------------------- pose vector
 
-def test_pose_goal_vector_packs_y_negx_cos_sin():
-    """run_omnivla_edge packs (rel_y/spacing, -rel_x/spacing, cos, sin)."""
+def test_pose_goal_vector_packs_fwd_left_cos_sin():
+    """The model's goal_pose shares the waypoint frame: (x_fwd, y_left)/spacing."""
     vec = _pose_goal_vector((2.0, 1.0, 0.0))  # 2 m forward, 1 m left, yaw 0
-    assert vec[0] == pytest.approx(1.0 / _METRIC_WAYPOINT_SPACING)   # rel_y/spacing
-    assert vec[1] == pytest.approx(-2.0 / _METRIC_WAYPOINT_SPACING)  # -rel_x/spacing
+    assert vec[0] == pytest.approx(2.0 / _METRIC_WAYPOINT_SPACING)   # forward/spacing
+    assert vec[1] == pytest.approx(1.0 / _METRIC_WAYPOINT_SPACING)   # left/spacing
     assert vec[2] == pytest.approx(1.0)   # cos(0)
     assert vec[3] == pytest.approx(0.0)   # sin(0)
 
 
 def test_pose_goal_vector_clamps_to_threshold():
     vec = _pose_goal_vector((100.0, 0.0, 0.0))  # 100 m forward -> clamp to 30 m
-    # rel_x clamped to 30 -> goal_pose[1] = -30/spacing
-    assert vec[1] == pytest.approx(-30.0 / _METRIC_WAYPOINT_SPACING)
+    assert vec[0] == pytest.approx(30.0 / _METRIC_WAYPOINT_SPACING)
+    assert vec[1] == pytest.approx(0.0)
 
 
 # --------------------------------------------------------------- ring buffer
