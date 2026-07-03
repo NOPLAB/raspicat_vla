@@ -110,6 +110,10 @@ class VLAEdgeNode(LifecycleNode):
         self._declare_parameters()
         self._bridge = CvBridge()
         self._latest_image: Optional[np.ndarray] = None
+        # monotonic ns of the last camera frame; 0 = never received. Guards
+        # against a dead camera driver: without it the node keeps sending and
+        # acting on the last frame forever, blindly driving the model's prior.
+        self._latest_image_stamp_ns = 0
         self._latest_image_lock = threading.Lock()
         self._latest_goal: Optional[GoalSpecMsg] = None
         self._latest_goal_lock = threading.Lock()
@@ -145,6 +149,10 @@ class VLAEdgeNode(LifecycleNode):
         self.declare_parameter('obs_publish_rate_hz', 2.0)
         self.declare_parameter('action_rate_hz', 10.0)
         self.declare_parameter('image_size', [224, 224])
+        # A camera frame older than this is treated as "no image": stop
+        # sending observations and safe-stop the action loop. Prevents blind
+        # driving on a frozen frame when the camera driver dies mid-run.
+        self.declare_parameter('image_max_age_sec', 2.0)
         self.declare_parameter('jpeg_quality', 85)
         self.declare_parameter('embedding_max_age_sec', 6.0)
         self.declare_parameter('embedding_hard_timeout_sec', 15.0)
@@ -284,6 +292,7 @@ class VLAEdgeNode(LifecycleNode):
             return
         with self._latest_image_lock:
             self._latest_image = cv_img
+            self._latest_image_stamp_ns = time.monotonic_ns()
 
     def _ros_goal_to_edge_goal(self, goal: GoalSpecMsg) -> Optional[EdgeGoal]:
         """Convert a GoalSpec ROS msg to the adapter-facing EdgeGoal.
@@ -334,11 +343,32 @@ class VLAEdgeNode(LifecycleNode):
 
     # ------------------------------------------------------------ tick: send
 
+    def _fresh_image(self) -> Optional[np.ndarray]:
+        """Latest camera frame, or None when none arrived or it went stale.
+
+        Staleness matters because both loops otherwise latch the last frame
+        forever: a dead camera would keep feeding the same observation to the
+        cloud and the same `cur` to the adapter, and the robot would blindly
+        drive the model's constant output for that frozen frame.
+        """
+        max_age_ns = int(float(self.get_parameter('image_max_age_sec').value) * 1e9)
+        with self._latest_image_lock:
+            img = self._latest_image
+            stamp = self._latest_image_stamp_ns
+        if img is None:
+            return None
+        if time.monotonic_ns() - stamp > max_age_ns:
+            self.get_logger().warn(
+                f'camera frame stale (>{max_age_ns / 1e9:.1f}s old); treating as no image',
+                throttle_duration_sec=2.0,
+            )
+            return None
+        return img.copy()
+
     def _send_observation_tick(self) -> None:
         if self._client is None:
             return
-        with self._latest_image_lock:
-            img = None if self._latest_image is None else self._latest_image.copy()
+        img = self._fresh_image()
         with self._latest_goal_lock:
             goal = self._latest_goal
         if img is None or goal is None:
@@ -434,8 +464,11 @@ class VLAEdgeNode(LifecycleNode):
             self.get_logger().warn('embedding age over max_age; running degraded')
 
         emb = self._cache.get_latest_raw()  # OK or DEGRADED
-        with self._latest_image_lock:
-            cur = None if self._latest_image is None else self._latest_image.copy()
+        cur = self._fresh_image()
+        if cur is None:
+            # No usable camera frame: safe-stop instead of acting blind.
+            self._path_pub.publish(path)
+            return
         # past = the frame the embedding was computed from (run_asyncvla.py's
         # past.png). The Edge_adapter compares it to `cur` to compensate for
         # what happened during the cloud round trip; falling back to `cur`
@@ -470,6 +503,8 @@ class VLAEdgeNode(LifecycleNode):
             return
         self._last_diag_log_ns = now_ns
         age_ms = (now_ns - emb.recv_time_ns) / 1e6
+        with self._latest_image_lock:
+            img_age_ms = (now_ns - self._latest_image_stamp_ns) / 1e6
         arr = np.asarray(emb.embedding, dtype=np.float32)
         wp = 'none'
         if len(path.poses) > 4:
@@ -478,6 +513,7 @@ class VLAEdgeNode(LifecycleNode):
             wp = f'({p.x:+.3f},{p.y:+.3f}) brg={bearing:+.1f}deg'
         self.get_logger().info(
             f'diag: emb frame={emb.frame_id} age={age_ms:.0f}ms '
+            f'img_age={img_age_ms:.0f}ms '
             f'std={arr.std():.4f} absmax={np.abs(arr).max():.3f} '
             f'past={"paired" if emb.obs_image_rgb is not None else "MISSING(cur)"} '
             f'wp4={wp}'
@@ -491,8 +527,7 @@ class VLAEdgeNode(LifecycleNode):
         empty Path (safe-stop) until a frame is available; the adapter itself
         returns an empty Path until a goal arrives.
         """
-        with self._latest_image_lock:
-            cur = None if self._latest_image is None else self._latest_image.copy()
+        cur = self._fresh_image()
         path = Path()
         path.header.frame_id = 'base_link'
         if cur is None:

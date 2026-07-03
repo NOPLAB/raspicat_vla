@@ -17,6 +17,7 @@ from nav_msgs.msg import Path
 
 from raspicat_vla_edge.edge_node import VLAEdgeNode
 from raspicat_vla_edge.embedding_cache import EmbeddingCache
+from raspicat_vla_msgs.msg import GoalSpec as GoalSpecMsg
 from raspicat_vla_proto import raspicat_vla_pb2
 from raspicat_vla_proto.conversions import float32_array_to_fp16_bytes
 
@@ -101,6 +102,7 @@ def test_action_tick_passes_embedding_frame_as_past_image(node):
     node._adapter = adapter
     node._path_pub = _StubPub()
     node._latest_image = _frame(200)          # newest camera frame
+    node._latest_image_stamp_ns = time.monotonic_ns()
     node._sent_frames = {1: _frame(10)}       # frame the cloud consumed
     node._on_embedding_received(_proto_embedding(1))
 
@@ -117,6 +119,7 @@ def test_action_tick_falls_back_to_cur_when_frame_uncorrelated(node):
     node._adapter = adapter
     node._path_pub = _StubPub()
     node._latest_image = _frame(200)
+    node._latest_image_stamp_ns = time.monotonic_ns()
     node._sent_frames = {}
     node._on_embedding_received(_proto_embedding(1))
 
@@ -124,3 +127,49 @@ def test_action_tick_falls_back_to_cur_when_frame_uncorrelated(node):
 
     call = adapter.calls[-1]
     np.testing.assert_array_equal(call['past_image_rgb'], _frame(200))
+
+
+def test_action_tick_safe_stops_on_stale_camera_frame(node):
+    """A frozen camera must not keep driving the model's constant output.
+
+    With the frame older than image_max_age_sec the tick publishes an empty
+    Path (follower safe-stops) and never invokes the adapter.
+    """
+    adapter = _RecordingAdapter()
+    node._adapter = adapter
+    pub = _StubPub()
+    node._path_pub = pub
+    node._latest_image = _frame(200)
+    node._latest_image_stamp_ns = time.monotonic_ns() - int(10e9)  # 10 s old
+    node._sent_frames = {1: _frame(10)}
+    node._on_embedding_received(_proto_embedding(1))
+
+    node._action_tick()
+
+    assert not adapter.calls
+    assert pub.published and len(pub.published[-1].poses) == 0
+
+
+def test_send_tick_skips_stale_camera_frame(node):
+    """The observation loop must stop feeding a frozen frame to the cloud."""
+
+    class _RecordingClient:
+        def __init__(self):
+            self.sent = []
+
+        def send(self, obs):
+            self.sent.append(obs)
+            return True
+
+    client = _RecordingClient()
+    node._client = client
+    node._latest_image = _frame(200)
+    node._latest_image_stamp_ns = time.monotonic_ns() - int(10e9)  # 10 s old
+    goal = GoalSpecMsg()
+    goal.mode = GoalSpecMsg.MODE_TEXT
+    goal.text = 'go forward'
+    node._latest_goal = goal
+
+    node._send_observation_tick()
+
+    assert not client.sent
