@@ -12,6 +12,8 @@ import torch
 from PIL import Image
 
 from raspicat_vla_remote.backends.omnivla_data_transform import (
+    GOAL_DIST_THRESHOLD_M,
+    METRIC_WAYPOINT_SPACING,
     build_inference_batch,
     determine_modality_id,
     _goal_pose_cos_sin,
@@ -36,8 +38,9 @@ def _stub_processor():
 
     p.tokenizer.side_effect = _tokenizer_call
 
-    # image_processor.apply_transform(pil) -> torch tensor (3, 224, 224)
-    p.image_processor.apply_transform.side_effect = lambda img: torch.zeros(
+    # image_processor.apply_transform(pil) -> torch tensor (3, 224, 224).
+    # Non-zero so tests can tell a transformed image apart from zero padding.
+    p.image_processor.apply_transform.side_effect = lambda img: torch.ones(
         3, 224, 224, dtype=torch.float32,
     )
     return p
@@ -82,13 +85,24 @@ def test_determine_modality_id(has_lang, has_pose, has_image_goal, expected):
 
 # ---------------------------------------------------------------- _goal_pose_cos_sin
 
-def test_goal_pose_cos_sin_packs_xy_costheta_sintheta():
+def test_goal_pose_cos_sin_normalizes_xy_by_waypoint_spacing():
+    """x/y are converted from metres to waypoint-spacing units (/0.1);
+    theta becomes (cos, sin). Mirrors run_omnivla.py's goal_pose_loc_norm."""
     out = _goal_pose_cos_sin((1.0, 2.0, math.pi / 2), pose_dim=4)
     assert out.shape == (4,)
-    assert pytest.approx(out[0]) == 1.0
-    assert pytest.approx(out[1]) == 2.0
+    assert pytest.approx(out[0]) == 1.0 / METRIC_WAYPOINT_SPACING   # 10.0
+    assert pytest.approx(out[1]) == 2.0 / METRIC_WAYPOINT_SPACING   # 20.0
     assert pytest.approx(out[2], abs=1e-6) == 0.0   # cos(pi/2)
     assert pytest.approx(out[3], abs=1e-6) == 1.0   # sin(pi/2)
+
+
+def test_goal_pose_cos_sin_clamps_distant_goals_to_threshold():
+    """Goals beyond thres_dist keep their bearing but are pulled to 30 m."""
+    out = _goal_pose_cos_sin((300.0, 400.0, 0.0), pose_dim=4)  # 500 m away
+    dist_m = math.hypot(out[0], out[1]) * METRIC_WAYPOINT_SPACING
+    assert pytest.approx(dist_m) == GOAL_DIST_THRESHOLD_M
+    # Bearing preserved: 300:400 -> 3:4.
+    assert pytest.approx(out[1] / out[0]) == 400.0 / 300.0
 
 
 def test_goal_pose_cos_sin_returns_zeros_when_none():
@@ -111,8 +125,11 @@ def test_build_inference_batch_returns_required_keys_lang_only():
     )
     for k in ('input_ids', 'attention_mask', 'pixel_values', 'labels', 'goal_pose'):
         assert k in batch, f'missing key: {k}'
-    # Single instance, no goal image -> pixel_values shape (1, 3, 224, 224)
-    assert batch['pixel_values'].shape == (1, 3, 224, 224)
+    # The vision backbone always splits pixel_values into [6, 6] channels
+    # (num_images_in_input=2), so a missing goal image is zero-padded:
+    # current (3 ch) + zeros (3 ch) -> (1, 6, 224, 224).
+    assert batch['pixel_values'].shape == (1, 6, 224, 224)
+    assert (batch['pixel_values'][:, 3:] == 0).all()
     # goal_pose has the expected POSE_DIM=4 layout
     assert batch['goal_pose'].shape == (1, 4)
 
@@ -127,7 +144,8 @@ def test_build_inference_batch_pose_goal_populates_goal_pose():
         processor=_stub_processor(),
         prompt_builder_cls=_stub_prompt_builder_cls(),
     )
-    assert batch['goal_pose'][0, 0].item() == pytest.approx(1.5)
+    # 1.5 m forward -> 15 waypoint-spacing units.
+    assert batch['goal_pose'][0, 0].item() == pytest.approx(1.5 / METRIC_WAYPOINT_SPACING)
     assert batch['goal_pose'][0, 2].item() == pytest.approx(1.0)  # cos(0)
 
 

@@ -3,7 +3,9 @@
 Plan 2B Path 1: the cloud already ran the full OmniVLA-original pipeline and
 serialized the predicted absolute waypoints with shape
 ``(NUM_ACTIONS_CHUNK, ACTION_DIM)`` = typically ``(8, 4)`` where the last
-dim packs ``(x, y, cos(theta), sin(theta))``. The edge just builds the Path.
+dim packs ``(x, y, cos(theta), sin(theta))``, x/y already scaled to metres
+(both cloud backends apply metric_waypoint_spacing before serializing).
+The edge just builds the Path.
 """
 from __future__ import annotations
 

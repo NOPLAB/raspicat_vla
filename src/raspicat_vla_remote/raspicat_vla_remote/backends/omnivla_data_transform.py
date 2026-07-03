@@ -22,6 +22,14 @@ from torch.nn.utils.rnn import pad_sequence
 
 _IGNORE_INDEX = -100
 
+# OmniVLA-original's length unit: the model consumes goal_pose and emits
+# waypoints in units of this spacing (metres). Matches metric_waypoint_spacing
+# in run_omnivla.py and OmniVLA-edge's _METRIC_WAYPOINT_SPACING.
+METRIC_WAYPOINT_SPACING = 0.1
+# Pose goals farther than this are pulled back to this range along the same
+# bearing, like run_omnivla.py's thres_dist.
+GOAL_DIST_THRESHOLD_M = 30.0
+
 
 def determine_modality_id(
     *,
@@ -63,10 +71,23 @@ def _goal_pose_cos_sin(
     *,
     pose_dim: int,
 ) -> np.ndarray:
-    """Pack (x, y, theta) into the (x, y, cos, sin) layout OmniVLA expects."""
+    """Pack a robot-relative (x, y, theta) goal the way OmniVLA was trained.
+
+    The model consumes ``(x_fwd, y_left, cos, sin)`` with x/y in *waypoint
+    spacing units*, not metres (run_omnivla.py:148-153; the training sets, e.g.
+    lelan_dataset.py:409, divide by metric_waypoint_spacing the same way).
+    Distant goals are clamped to GOAL_DIST_THRESHOLD_M first (thres_dist).
+    """
     if goal_pose_xy_theta is None:
         return np.zeros(pose_dim, dtype=np.float32)
-    x, y, theta = goal_pose_xy_theta
+    x, y, theta = (float(v) for v in goal_pose_xy_theta)
+    radius = math.hypot(x, y)
+    if radius > GOAL_DIST_THRESHOLD_M:
+        scale = GOAL_DIST_THRESHOLD_M / radius
+        x *= scale
+        y *= scale
+    x /= METRIC_WAYPOINT_SPACING
+    y /= METRIC_WAYPOINT_SPACING
     if pose_dim == 4:
         return np.array([x, y, math.cos(theta), math.sin(theta)], dtype=np.float32)
     if pose_dim == 2:
@@ -107,9 +128,9 @@ def build_inference_batch(
     Returned keys:
         input_ids, attention_mask, pixel_values, labels, goal_pose
 
-    `pixel_values` packs ``cat(current, goal, dim=channels)`` if a goal_image
-    is present (matches OmniVLA-original training); otherwise it's just the
-    current image's pixels.
+    `pixel_values` always packs ``cat(current, goal, dim=channels)`` (6 ch,
+    matching the vision backbone's num_images_in_input=2 split); a missing
+    goal_image is zero-padded and ignored via modality_id.
     """
     # 1. Dummy action chunk -> action chunk string. Used only for tokenizer
     #    placement; actual values are ignored at inference (`labels` are masked

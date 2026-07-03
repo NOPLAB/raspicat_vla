@@ -16,6 +16,7 @@ import torch
 
 from ._openvla_oft import OpenVLAOFTBackendBase
 from .base import ModelInfoDict
+from .omnivla_data_transform import METRIC_WAYPOINT_SPACING
 
 
 class OmniVLABackend(OpenVLAOFTBackendBase):
@@ -49,8 +50,15 @@ class OmniVLABackend(OpenVLAOFTBackendBase):
     def _project_actions(
         self, actions_hidden: torch.Tensor, modality_id: torch.Tensor,
     ) -> torch.Tensor:
-        # The L1 regression head decodes the hidden states straight to waypoints.
-        return self._action_head.predict_action(actions_hidden, modality_id)
+        # The L1 regression head decodes the hidden states straight to waypoints
+        # (x, y, cos, sin) in waypoint-spacing units. Scale x/y to metres here so
+        # the wire payload matches the Path 3 backend (omnivla_edge.py) and the
+        # edge's path-only adapter can stay a pure pass-through
+        # (run_omnivla.py:195 applies the same metric_waypoint_spacing).
+        waypoints = self._action_head.predict_action(actions_hidden, modality_id)
+        waypoints = waypoints.clone()
+        waypoints[..., :2] *= METRIC_WAYPOINT_SPACING
+        return waypoints
 
     def model_info(self) -> ModelInfoDict:
         return ModelInfoDict(
