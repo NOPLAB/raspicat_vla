@@ -120,6 +120,13 @@ Commands:
                                                   /dev bind-mounted for USB.
                                     Omit to feed frames some other way (a camera
                                     launched outside, publish_fake_image.py, sim).
+      --image-topic TOPIC           Where the edge reads frames when NOT grabbing
+                                    a device in-process (edge|cmd_vel|edge-local|
+                                    sim). A topic ending in /compressed is
+                                    subscribed as CompressedImage (JPEG) — use it
+                                    whenever the camera sits on another host
+                                    (raw Image does not survive WiFi), e.g.
+                                    --image-topic /camera/image_raw/compressed
       cmd_vel {--cpu|--gpu}         All-in-one on THIS host, no real robot: one
                                     command starts BOTH the remote server (bound
                                     to 127.0.0.1) and the edge stack, in two
@@ -279,6 +286,14 @@ _append_camera_launch_args() {
     # Explicit success: a trailing `[[ ... ]] &&` that fails (no camera => both
     # branches skipped) would make this function return 1 and, under `set -e`,
     # abort the whole script right after the caller's log line.
+    return 0
+}
+
+# Append image_topic:=... to the launch argv array named by $1 when the user
+# passed --image-topic (stored in RUN_IMAGE_TOPIC by cmd_run).
+_append_image_topic_arg() {
+    local -n _arr=$1
+    [[ -n ${RUN_IMAGE_TOPIC:-} ]] && _arr+=("image_topic:=${RUN_IMAGE_TOPIC}")
     return 0
 }
 
@@ -485,6 +500,7 @@ run_edge() {
         with_follower:=true
     )
     _append_camera_launch_args launch_args "$camera_kind" "$camera_device"
+    _append_image_topic_arg launch_args
     _run_edge_launch "$model" "$camera_kind" "$camera_device" "${launch_args[@]}"
 }
 
@@ -519,6 +535,7 @@ run_cmd_vel() {
         "cmd_vel_topic:=${cmd_vel_topic}"
     )
     _append_camera_launch_args launch_args "$camera_kind" "$camera_device"
+    _append_image_topic_arg launch_args
     _run_edge_launch "$model" "$camera_kind" "$camera_device" "${launch_args[@]}"
 }
 
@@ -628,6 +645,7 @@ run_edge_local() {
     mapfile -t device_args < <(camera_docker_args "$camera_kind" "$camera_device")
     local cam_launch_args=()
     _append_camera_launch_args cam_launch_args "$camera_kind" "$camera_device"
+    _append_image_topic_arg cam_launch_args
     log "omnivla_edge edge-local (image=${image}, ${gpu_args[*]}); standalone edge + follower${camera_kind:+; camera=${camera_kind}${camera_device:+ ${camera_device}}}"
     docker run "${ROS_USER_BASE_ARGS[@]}" \
         "${gpu_args[@]}" \
@@ -652,7 +670,7 @@ cmd_run() {
     esac
     shift
 
-    local mode='' host='' device='' camera='' drive_motors=''
+    local mode='' host='' device='' camera='' drive_motors='' image_topic=''
     while [[ $# -gt 0 ]]; do
         case $1 in
             --mode)
@@ -672,6 +690,9 @@ cmd_run() {
             --camera)
                 [[ $# -ge 2 ]] || { err "--camera requires an argument (edge|realsense|/dev/videoN)"; return 1; }
                 camera=$2; shift 2 ;;
+            --image-topic)
+                [[ $# -ge 2 ]] || { err "--image-topic requires a topic name"; return 1; }
+                image_topic=$2; shift 2 ;;
             --cpu)    device=cpu; shift ;;
             --gpu)    device=gpu; shift ;;
             --drive-motors) drive_motors=1; shift ;;
@@ -700,6 +721,19 @@ cmd_run() {
             warn "camera device ${camera_device} not present on host; passing it through anyway (edge will fail to open it if still absent at run time)"
         fi
     fi
+
+    # --image-topic overrides where the edge reads frames from (only meaningful
+    # for the edge-side modes; a */compressed topic is subscribed as JPEG).
+    if [[ -n $image_topic ]]; then
+        case $mode in
+            edge|cmd_vel|edge_local|sim) ;;
+            *) err "--image-topic is only valid for --mode edge|cmd_vel|edge-local|sim (not '$mode')"; return 1 ;;
+        esac
+        if [[ -n $camera ]]; then
+            warn "--image-topic is ignored while --camera grabs the device in-process"
+        fi
+    fi
+    RUN_IMAGE_TOPIC=$image_topic
 
     # --drive-motors flips cmd_vel mode from the safe /cmd_vel_vla preview topic to
     # the real /cmd_vel motor topic; it is meaningless for any other mode.
