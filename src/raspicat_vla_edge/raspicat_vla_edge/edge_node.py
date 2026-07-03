@@ -491,7 +491,7 @@ class VLAEdgeNode(LifecycleNode):
         self._path_pub.publish(path)
 
     def _log_action_diag(self, emb: CachedEmbedding, path: Path) -> None:
-        """Throttled (2 s) one-line diagnostic of what the adapter produced.
+        """Throttled (1 s) one-line diagnostic of what the adapter produced.
 
         Meant to make field debugging possible from the launch log alone:
         embedding freshness + magnitude and the follower's target waypoint
@@ -499,7 +499,7 @@ class VLAEdgeNode(LifecycleNode):
         embedding, or a follower-side problem can be told apart on the robot.
         """
         now_ns = time.monotonic_ns()
-        if now_ns - self._last_diag_log_ns < 2_000_000_000:
+        if now_ns - self._last_diag_log_ns < 1_000_000_000:
             return
         self._last_diag_log_ns = now_ns
         age_ms = (now_ns - emb.recv_time_ns) / 1e6

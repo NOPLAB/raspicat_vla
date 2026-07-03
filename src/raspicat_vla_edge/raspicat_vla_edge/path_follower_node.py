@@ -70,6 +70,8 @@ class PathFollowerNode(Node):
         # Last "moving" command and the time it was computed, for hold-last.
         self._held_cmd: Optional[TwistCmd] = None
         self._held_at = None  # rclpy Time or None
+        # Motion state of the last published command, for transition logging.
+        self._was_moving = False
         self._sub = self.create_subscription(
             Path,
             self.get_parameter('path_topic').value,
@@ -109,10 +111,37 @@ class PathFollowerNode(Node):
 
     def _tick(self) -> None:
         cmd = self._decide_cmd(self.get_clock().now())
+        self._log_motion_transition(cmd)
         twist = Twist()
         twist.linear.x = float(cmd.linear)
         twist.angular.z = float(cmd.angular)
         self._pub.publish(twist)
+
+    def _log_motion_transition(self, cmd: TwistCmd) -> None:
+        """One INFO line per moving<->stopped transition, with the stop reason.
+
+        Surge-and-stop driving shows up as pairs of these lines; the reason
+        (empty path vs model's own near-zero waypoint vs frame mismatch)
+        tells which upstream stage commanded the stop without needing a
+        debugger on the robot.
+        """
+        moving = abs(cmd.linear) > self._cmd_eps or abs(cmd.angular) > self._cmd_eps
+        if moving == self._was_moving:
+            return
+        self._was_moving = moving
+        if moving:
+            self.get_logger().info(
+                f'resume: cmd=({cmd.linear:+.3f},{cmd.angular:+.3f}) '
+                f'path_len={len(self._latest)}'
+            )
+            return
+        if self._frame_mismatch:
+            reason = 'frame mismatch'
+        elif not self._latest:
+            reason = 'empty path (edge safe-stop)'
+        else:
+            reason = 'model output near-zero waypoint'
+        self.get_logger().info(f'stop: {reason} (path_len={len(self._latest)})')
 
     def _decide_cmd(self, now) -> TwistCmd:
         """Pick the command to publish, applying hold-last-command.
