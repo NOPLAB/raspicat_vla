@@ -128,6 +128,8 @@ class VLAEdgeNode(LifecycleNode):
         self._sent_frames_max = 8
         # Monotonic timestamp of the last action-tick diagnostic log line.
         self._last_diag_log_ns = 0
+        # Duration of the most recent adapter inference, for the diag line.
+        self._last_predict_ms = 0.0
         # Callback groups: rclpy puts every callback in ONE mutually exclusive
         # group by default, so a CPU-heavy adapter inference in the action tick
         # blocks the image callback for its whole duration — on a Pi the camera
@@ -500,6 +502,7 @@ class VLAEdgeNode(LifecycleNode):
         # (no correlated frame) degrades to zero-latency behaviour.
         past = emb.obs_image_rgb if emb.obs_image_rgb is not None else cur
         try:
+            t0 = time.monotonic()
             path = self._adapter.predict_path(
                 embedding=np.asarray(emb.embedding, dtype=np.float32),
                 embedding_shape=(1, int(emb.num_tokens), int(emb.embed_dim)),
@@ -507,6 +510,7 @@ class VLAEdgeNode(LifecycleNode):
                 past_image_rgb=past,
                 frame_id='base_link',
             )
+            self._last_predict_ms = (time.monotonic() - t0) * 1000.0
         except Exception as exc:  # noqa: BLE001
             self.get_logger().warn(f'adapter.predict_path failed: {exc}; safe-stopping')
             path = Path()
@@ -538,7 +542,7 @@ class VLAEdgeNode(LifecycleNode):
             wp = f'({p.x:+.3f},{p.y:+.3f}) brg={bearing:+.1f}deg'
         self.get_logger().info(
             f'diag: emb frame={emb.frame_id} age={age_ms:.0f}ms '
-            f'img_age={img_age_ms:.0f}ms '
+            f'img_age={img_age_ms:.0f}ms pred={self._last_predict_ms:.0f}ms '
             f'std={arr.std():.4f} absmax={np.abs(arr).max():.3f} '
             f'past={"paired" if emb.obs_image_rgb is not None else "MISSING(cur)"} '
             f'wp4={wp}'

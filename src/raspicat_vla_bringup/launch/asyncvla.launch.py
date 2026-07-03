@@ -44,6 +44,11 @@ def generate_launch_description():
         'asyncvla_weights_path': vla_path,
         'asyncvla_resume_step': resume_step,
         'asyncvla_device': edge_device,
+        # Edge_adapter CPU inference takes O(100 ms) on the robot; the default
+        # 10 Hz action tick therefore runs back-to-back, monopolising CPU that
+        # the camera driver needs (frames then stall and the freshness guard
+        # safe-stops). 3 Hz still refreshes the path ~4x per cloud embedding.
+        'action_rate_hz': 3.0,
     }])
 
     return LaunchDescription([
