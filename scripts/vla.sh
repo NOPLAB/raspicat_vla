@@ -134,7 +134,7 @@ Commands:
       edge-local                    Plan 2B Path 2 (omnivla_edge ONLY): run the
                                     OmniVLA-edge policy ON the edge, standalone —
                                     no cloud, just edge node + follower
-                                    (mvp_omnivla_edge.launch.py). Requires CUDA
+                                    (omnivla_edge_local.launch.py). Requires CUDA
                                     and models/omnivla-edge/omnivla-edge.pth.
                                     Uses Dockerfile.real; GPU via --gpus all
                                     (x86) or --runtime nvidia (Jetson/L4T).
@@ -599,14 +599,14 @@ run_sim() {
         -v "$HF_CACHE_DIR:/tmp/.cache/huggingface" \
         "$image" bash -lc "$(_container_launch_script \
             "source /opt/sim_ws/install/setup.bash" \
-            ros2 launch raspicat_vla_bringup mvp_sim.launch.py \
+            ros2 launch raspicat_vla_bringup sim.launch.py \
             "remote_address:=${host}:${port}" \
             "adapter_kind:=${adapter_kind}")"
 }
 
 # Plan 2B Path 2: the OmniVLA-edge policy runs entirely on the edge. The edge
 # node operates standalone — no cloud, no gRPC, no embedding cache — so this is a
-# single-host run of mvp_omnivla_edge.launch.py (edge node + follower). Needs
+# single-host run of omnivla_edge_local.launch.py (edge node + follower). Needs
 # CUDA (the vendored OmniVLA_edge forward pass is GPU-only) and the omnivla-edge
 # weights at models/omnivla-edge/omnivla-edge.pth.
 run_edge_local() {
@@ -635,7 +635,7 @@ run_edge_local() {
         -v "${HOME}/.cache/clip:/tmp/.cache/clip" \
         "$image" bash -lc "$(_container_launch_script \
             "source /opt/real_ws/install/setup.bash" \
-            ros2 launch raspicat_vla_bringup mvp_omnivla_edge.launch.py \
+            ros2 launch raspicat_vla_bringup omnivla_edge_local.launch.py \
             "device:=cuda:0" "${cam_launch_args[@]}")"
 }
 

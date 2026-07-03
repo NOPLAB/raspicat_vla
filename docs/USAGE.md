@@ -134,7 +134,7 @@ OmniVLA `120000`。変更する場合はスクリプト中の `RESUME_STEP` 連�
 |-----------|-----------------------|---------------------------------------------------------------|
 | `--remote`| `asyncvla`/`omnivla`  | gRPC サーバ (`raspicat_vla_remote.server_main`)              |
 | `--real`  | `real`                | rt-net 実機向け `edge_only.launch.py`                         |
-| `--sim`   | `sim`                 | `mvp_sim.launch.py` (Gazebo + エッジ + path follower)         |
+| `--sim`   | `sim`                 | `sim.launch.py` (Gazebo + エッジ + path follower)         |
 | `test`    | `test`                | pytest                                                        |
 
 `--real` と `--sim` は対応する完全イメージが build されていない場合、
@@ -427,7 +427,7 @@ remote サブコマンドは明示的なデバイス指定を要求する。デ�
 **`Service /spawn_entity unavailable. Was Gazebo started with GazeboRosFactory?`**
 rt-net の `spawn_raspicat.launch.py` が `spawn_entity.py` を built-in 30 秒
 タイムアウトで呼んでいるが、WSL2 や CPU 競合下では gazebo_ros_factory
-プラグインの service 登録が間に合わずに諦めることがある。`mvp_sim.launch.py`
+プラグインの service 登録が間に合わずに諦めることがある。`sim.launch.py`
 は 90 秒経過時点で `get_model_list` を見て raspicat が居なければ再 spawn
 する fallback を仕込んであるので、世界に robot が居なくなる事故は通常起き
 ない。それでも spawn しない場合は手動で:
@@ -455,7 +455,7 @@ HF トークンをクリア (`huggingface-cli logout`) してリトライ。期�
 * `scripts/vla.sh --help` — サブコマンドの正準リファレンス
 * `proto/raspicat_vla.proto` — gRPC インタフェース定義
 * `src/raspicat_vla_edge/launch/edge_only.launch.py` — エッジの launch 引数
-* `src/raspicat_vla_bringup/launch/mvp_sim.launch.py` — Sim の launch 構成
+* `src/raspicat_vla_bringup/launch/sim.launch.py` — Sim の launch 構成
 * `src/raspicat_vla_edge/config/edge_params.yaml` — エッジパラメータ全件
 * `src/raspicat_vla_remote/raspicat_vla_remote/server_main.py` — リモート CLI
 * `scripts/download_*_checkpoints.sh` — HF モデル取得ヘルパ

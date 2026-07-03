@@ -1,11 +1,11 @@
-"""Launch the OmniVLA-edge MVP (Plan 2B Path 2 — policy runs ON the edge):
+"""Launch OmniVLA-edge standalone (Plan 2B Path 2 — policy runs ON the edge):
  - vla_edge_node       (lifecycle; adapter_kind=omnivla_edge_local, standalone)
  - path_follower_node  (Path -> /cmd_vel)
 
 The full OmniVLA-edge policy + CLIP run locally in the edge node, which operates
 in *standalone* mode: no cloud, no gRPC client, no embedding cache. The action
 loop drives the local policy directly from the camera frame + goal. (Contrast
-with mvp_omnivla.launch.py, Path 1, where a GPU cloud runs OmniVLA-original.)
+with omnivla.launch.py, Path 1, where a GPU cloud runs OmniVLA-original.)
 
 Requirements: a CUDA-capable edge (the vendored OmniVLA_edge forward pass is
 GPU-only) and the omnivla-edge weights at ``omnivla_edge_weights_path``

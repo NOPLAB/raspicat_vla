@@ -1,16 +1,23 @@
-"""Launch the AsyncVLA real-stack MVP (Plan 2A):
- - AsyncVLA cloud server  (--backend asyncvla, GPU; loads AsyncVLA_release)
- - vla_edge_node          (lifecycle; adapter_kind=asyncvla, runs Edge_adapter)
- - path_follower_node     (Path -> /cmd_vel)
+"""Launch the OmniVLA-edge *remote-split* stack (Plan 2B Path 3):
+ - OmniVLA-edge server   (--backend omnivla_edge, GPU; loads omnivla-edge.pth)
+ - vla_edge_node         (lifecycle; adapter_kind=omnivla, path-only)
+ - path_follower_node    (Path -> /cmd_vel)
 
-The cloud runs the heavy backbone (~7.5 B params) on GPU and emits a
-(8, 1024) projected_actions tensor; the edge runs a small ~5 M-param
-Edge_adapter (efficientnet-b0 + transformer decoder) over (cur, past, vla_feature),
-applies delta_to_pose, and publishes a nav_msgs/Path.
+The OmniVLA-edge policy runs on a remote GPU box (typically a Jetson) and streams
+predicted waypoints over gRPC; the edge runs only the light path-only adapter and
+does the control. This mirrors the intended deployment ("Jetson infers, Raspberry
+Pi controls") but assumes both are on localhost. For a real split-host run, start
+the server with ``scripts/vla.sh run omnivla_edge --remote --gpu`` on the Jetson
+and bring up only the edge with ``edge_only.launch.py`` (adapter_kind:=omnivla)
+pointed at the Jetson.
 
-For split-host deployment, run the cloud in Dockerfile.asyncvla on a GPU
-box and point the edge's remote_address at it. Both hosts need
-external/MBRA on PYTHONPATH (Edge_adapter's transitive dep).
+Contrast:
+ - omnivla_edge_local.launch.py (Path 2): the SAME policy runs ON the edge,
+   standalone (no cloud).
+ - omnivla.launch.py (Path 1): a cloud runs OmniVLA-*original*.
+
+Requires the omnivla-edge weights at ``weights_path``
+(``scripts/download_omnivla_edge_checkpoints.sh``) and a CUDA server host.
 """
 import os
 
@@ -27,23 +34,20 @@ from launch_ros.actions import LifecycleNode, Node
 
 def generate_launch_description():
     grpc_port = LaunchConfiguration('grpc_port')
-    vla_path = LaunchConfiguration('vla_path')
-    resume_step = LaunchConfiguration('resume_step')
+    weights_path = LaunchConfiguration('weights_path')
     device = LaunchConfiguration('device')
-    edge_device = LaunchConfiguration('edge_device')
 
     edge_config = os.path.join(
         get_package_share_directory('raspicat_vla_edge'),
         'config', 'edge_params.yaml',
     )
 
-    asyncvla_server = ExecuteProcess(
+    edge_server = ExecuteProcess(
         cmd=[
             'python3', '-m', 'raspicat_vla_remote.server_main',
-            '--backend', 'asyncvla',
+            '--backend', 'omnivla_edge',
             '--port', grpc_port,
-            '--vla-path', vla_path,
-            '--resume-step', resume_step,
+            '--vla-path', weights_path,
             '--device', device,
         ],
         output='screen',
@@ -57,10 +61,7 @@ def generate_launch_description():
         output='screen',
         parameters=[edge_config, {
             'remote_address': ['localhost:', grpc_port],
-            'adapter_kind': 'asyncvla',
-            'asyncvla_weights_path': vla_path,
-            'asyncvla_resume_step': resume_step,
-            'asyncvla_device': edge_device,
+            'adapter_kind': 'omnivla',
         }],
     )
     node_name = '/vla_edge_node'
@@ -85,11 +86,11 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument('grpc_port', default_value='50051'),
-        DeclareLaunchArgument('vla_path', default_value='/workspace/models/AsyncVLA_release'),
-        DeclareLaunchArgument('resume_step', default_value='750000'),
+        DeclareLaunchArgument(
+            'weights_path',
+            default_value='/workspace/models/omnivla-edge/omnivla-edge.pth'),
         DeclareLaunchArgument('device', default_value='cuda:0'),
-        DeclareLaunchArgument('edge_device', default_value='cpu'),
-        asyncvla_server,
+        edge_server,
         edge,
         # Drive the lifecycle via `ros2 lifecycle set`: launch_ros's
         # EmitEvent(ChangeState) was silently dropped on slow hosts (Jetson),

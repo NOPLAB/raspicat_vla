@@ -1,23 +1,13 @@
-"""Launch the OmniVLA-edge *remote-split* MVP (Plan 2B Path 3):
- - OmniVLA-edge server   (--backend omnivla_edge, GPU; loads omnivla-edge.pth)
- - vla_edge_node         (lifecycle; adapter_kind=omnivla, path-only)
+"""Launch the OmniVLA real stack (Plan 2B Path 1):
+ - OmniVLA cloud server  (--backend omnivla, GPU; loads omnivla-original)
+ - vla_edge_node         (lifecycle; adapter_kind=omnivla)
  - path_follower_node    (Path -> /cmd_vel)
 
-The OmniVLA-edge policy runs on a remote GPU box (typically a Jetson) and streams
-predicted waypoints over gRPC; the edge runs only the light path-only adapter and
-does the control. This mirrors the intended deployment ("Jetson infers, Raspberry
-Pi controls") but assumes both are on localhost. For a real split-host run, start
-the server with ``scripts/vla.sh run omnivla_edge --remote --gpu`` on the Jetson
-and bring up only the edge with ``edge_only.launch.py`` (adapter_kind:=omnivla)
-pointed at the Jetson.
-
-Contrast:
- - mvp_omnivla_edge.launch.py (Path 2): the SAME policy runs ON the edge,
-   standalone (no cloud).
- - mvp_omnivla.launch.py (Path 1): a cloud runs OmniVLA-*original*.
-
-Requires the omnivla-edge weights at ``weights_path``
-(``scripts/download_omnivla_edge_checkpoints.sh``) and a CUDA server host.
+Cloud and edge can run on different hosts; this launch file assumes both
+are on localhost. For split-host deployment, run the OmniVLA server in
+Dockerfile.omnivla on the GPU box and bring up only the edge + follower
+on the raspicat (use ``edge_only.launch.py`` and point ``remote_address``
+at the cloud).
 """
 import os
 
@@ -34,7 +24,8 @@ from launch_ros.actions import LifecycleNode, Node
 
 def generate_launch_description():
     grpc_port = LaunchConfiguration('grpc_port')
-    weights_path = LaunchConfiguration('weights_path')
+    vla_path = LaunchConfiguration('vla_path')
+    resume_step = LaunchConfiguration('resume_step')
     device = LaunchConfiguration('device')
 
     edge_config = os.path.join(
@@ -42,12 +33,13 @@ def generate_launch_description():
         'config', 'edge_params.yaml',
     )
 
-    edge_server = ExecuteProcess(
+    omnivla_server = ExecuteProcess(
         cmd=[
             'python3', '-m', 'raspicat_vla_remote.server_main',
-            '--backend', 'omnivla_edge',
+            '--backend', 'omnivla',
             '--port', grpc_port,
-            '--vla-path', weights_path,
+            '--vla-path', vla_path,
+            '--resume-step', resume_step,
             '--device', device,
         ],
         output='screen',
@@ -86,11 +78,10 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument('grpc_port', default_value='50051'),
-        DeclareLaunchArgument(
-            'weights_path',
-            default_value='/workspace/models/omnivla-edge/omnivla-edge.pth'),
+        DeclareLaunchArgument('vla_path', default_value='/workspace/models/omnivla-original'),
+        DeclareLaunchArgument('resume_step', default_value='120000'),
         DeclareLaunchArgument('device', default_value='cuda:0'),
-        edge_server,
+        omnivla_server,
         edge,
         # Drive the lifecycle via `ros2 lifecycle set`: launch_ros's
         # EmitEvent(ChangeState) was silently dropped on slow hosts (Jetson),

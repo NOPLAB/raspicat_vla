@@ -29,7 +29,7 @@ A newer, **separate** effort (`app/`, `docs/mobile_port_spec.md`) ports OmniVLA-
 
 **Mobile port re-implements the OmniVLA-edge preprocessing by hand.** The Python engine (`omnivla_edge_engine.py`) is the reference definition; the Flutter app reproduces its resize / ImageNet-normalize / ring-buffer / goal-tensor assembly natively. `app/lib/src/config.dart` mirrors the engine's `_MODEL_PARAMS` and must stay in lockstep — changing a constant on one side silently breaks agreement with `omnivla-edge.pth`. `docs/mobile_port_spec.md §3` is the authoritative data contract (7 ONNX inputs, output `(1,8,4)`); update it alongside any change.
 
-**Edge node is a LifecycleNode.** Bringup launch files must drive the configure → activate transitions via `RegisterEventHandler` (see `mvp_local.launch.py`) — don't bypass the lifecycle.
+**Edge node is a LifecycleNode.** Bringup launch files must drive the configure → activate transitions via `RegisterEventHandler` (see `dummy_local.launch.py`) — don't bypass the lifecycle.
 
 **Embedding cache and decoupled rates.** Edge publishes observations slower than it ticks the action loop; the latest embedding is held in `EmbeddingCache` with a soft max-age and a hard timeout. Preserve the property that the action tick consumes whatever is currently in cache rather than blocking on a fresh embedding. Relatedly, the gRPC client (`grpc_client.py`) **coalesces and paces** outbound observations — it keeps only the newest pending observation and rate-limits sends so a slow remote can't back-pressure and stall the control loop. Preserve this when touching the send path.
 
@@ -54,7 +54,7 @@ To bump rt-net pins, edit `raspicat.repos` and re-run `vcs import`.
 ### Plan-1 MVP (dummy backend, all local)
 
 ```bash
-ros2 launch raspicat_vla_bringup mvp_local.launch.py
+ros2 launch raspicat_vla_bringup dummy_local.launch.py
 python3 tools/publish_fake_image.py   # inject a frame so something flows
 ```
 
@@ -65,7 +65,7 @@ python3 tools/publish_fake_image.py   # inject a frame so something flows
 Mode selection is `--mode <value>`, not one flag per mode. A few modes have non-obvious purpose:
 
 - `--mode cmd_vel` is a single-host, no-real-robot bring-up: **one command starts two containers** (remote server bound to `127.0.0.1` + edge stack) and the follower publishes to a **non-motor topic** (`/cmd_vel_vla`, via `cmd_vel.launch.py`), so the full observation→gRPC→embedding→path→cmd_vel pipeline runs and is observable (`ros2 topic echo /cmd_vel_vla`) without driving motors. The server is detached and torn down on exit.
-- `--mode edge-local` (Plan 2B Path 2, `omnivla_edge` only) runs the OmniVLA-edge policy standalone **on the robot** (`mvp_omnivla_edge.launch.py`, no cloud server). Needs CUDA and `models/omnivla-edge/omnivla-edge.pth`.
+- `--mode edge-local` (Plan 2B Path 2, `omnivla_edge` only) runs the OmniVLA-edge policy standalone **on the robot** (`omnivla_edge_local.launch.py`, no cloud server). Needs CUDA and `models/omnivla-edge/omnivla-edge.pth`.
 
 **Jetson AGX Orin (ARM64).** On an `aarch64` host `vla.sh` auto-selects the `*-jetson` remote images and swaps `--gpus all` for `--runtime nvidia`. Match the image to your JetPack via the `L4T_BASE`/`TORCH_VERSION` build args (see the Dockerfile header). Force/disable Jetson mode with `RASPICAT_VLA_JETSON=1`/`=0`.
 
