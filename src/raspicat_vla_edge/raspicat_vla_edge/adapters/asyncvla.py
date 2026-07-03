@@ -23,10 +23,10 @@ from typing import Optional, Tuple
 
 import cv2
 import numpy as np
-from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Path
 
 from .base import EdgeAdapter
+from ._path_util import trajectory_to_path
 
 
 _LOG = logging.getLogger(__name__)
@@ -164,16 +164,5 @@ class AsyncVLAEdgeAdapter(EdgeAdapter):
         with torch.no_grad():
             delta = self._model(cur, past, feat)        # (1, 8, 4)
         poses = _delta_to_pose_np(delta.cpu().numpy()) # (1, 8, 4)
-        wp = poses[0]                                   # (8, 4)
-
-        path = Path()
-        path.header.frame_id = frame_id
-        for x, y, c, s in wp:
-            ps = PoseStamped()
-            ps.header.frame_id = frame_id
-            ps.pose.position.x = float(x)
-            ps.pose.position.y = float(y)
-            ps.pose.orientation.z = float(s)
-            ps.pose.orientation.w = float(c)
-            path.poses.append(ps)
-        return path
+        # Waypoints are already metres (delta_to_pose accumulates world-frame poses).
+        return trajectory_to_path(poses[0], frame_id=frame_id)

@@ -10,10 +10,10 @@ from __future__ import annotations
 from typing import Optional, Tuple
 
 import numpy as np
-from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Path
 
 from .base import EdgeAdapter
+from ._path_util import trajectory_to_path
 
 
 class OmniVLAEdgeAdapter(EdgeAdapter):
@@ -29,19 +29,5 @@ class OmniVLAEdgeAdapter(EdgeAdapter):
         frame_id: str = 'base_link',
     ) -> Path:
         wp = np.asarray(embedding, dtype=np.float32).reshape(embedding_shape[1:])
-        if wp.ndim != 2 or wp.shape[-1] < 4:
-            raise ValueError(
-                f'OmniVLA expects (num_tokens, ACTION_DIM>=4) packed as '
-                f'(x, y, cos, sin); got shape={wp.shape}'
-            )
-        path = Path()
-        path.header.frame_id = frame_id
-        for x, y, c, s in wp[:, :4]:
-            ps = PoseStamped()
-            ps.header.frame_id = frame_id
-            ps.pose.position.x = float(x)
-            ps.pose.position.y = float(y)
-            ps.pose.orientation.z = float(s)
-            ps.pose.orientation.w = float(c)
-            path.poses.append(ps)
-        return path
+        # Waypoints arrive already in metres (the cloud scales them), so spacing=1.
+        return trajectory_to_path(wp, frame_id=frame_id)

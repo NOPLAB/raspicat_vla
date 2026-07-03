@@ -29,10 +29,10 @@ import threading
 from typing import Optional, Tuple
 
 import numpy as np
-from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Path
 
 from .base import EdgeAdapter, EdgeGoal
+from ._path_util import trajectory_to_path
 # Re-export the ROS-free pipeline pieces from the shared engine so existing
 # imports (and unit tests) that reach them here keep working.
 from ..omnivla_edge_engine import (  # noqa: F401
@@ -53,28 +53,8 @@ def _trajectory_to_path(
     spacing: float = _METRIC_WAYPOINT_SPACING,
     frame_id: str = 'base_link',
 ) -> Path:
-    """(T, 4) [x, y, cos, sin] in spacing units -> nav_msgs/Path (metres).
-
-    x is forward, y is left (robot frame); orientation maps (cos, sin) to the
-    (w, z) of a yaw-only quaternion. Pure numpy — no torch — so it is unit
-    testable without model weights.
-    """
-    wp = np.asarray(waypoints, dtype=np.float32)
-    if wp.ndim != 2 or wp.shape[-1] < 4:
-        raise ValueError(
-            f'expected (T, ACTION_DIM>=4) packed as (x, y, cos, sin); got shape={wp.shape}'
-        )
-    path = Path()
-    path.header.frame_id = frame_id
-    for x, y, c, s in wp[:, :4]:
-        ps = PoseStamped()
-        ps.header.frame_id = frame_id
-        ps.pose.position.x = float(x) * spacing
-        ps.pose.position.y = float(y) * spacing
-        ps.pose.orientation.z = float(s)
-        ps.pose.orientation.w = float(c)
-        path.poses.append(ps)
-    return path
+    """Back-compat shim for existing imports; canonical impl in ``_path_util``."""
+    return trajectory_to_path(waypoints, spacing=spacing, frame_id=frame_id)
 
 
 class OmniVLAEdgeLocalAdapter(EdgeAdapter):
@@ -134,6 +114,6 @@ class OmniVLAEdgeLocalAdapter(EdgeAdapter):
             goal_pose_xy_theta=goal.pose_xy_theta,
             goal_image_rgb=goal.image_rgb,
         )
-        return _trajectory_to_path(
+        return trajectory_to_path(
             waypoints, spacing=self._engine.metric_waypoint_spacing, frame_id=frame_id,
         )
