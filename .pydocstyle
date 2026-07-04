@@ -1,0 +1,16 @@
+# raspicat_vla_* パッケージ共通の pydocstyle (pep257) 設定。
+# 素の pydocstyle (pre-commit) が自動発見して読む。ament_pep257 は自前の CLI 引数で
+# この設定を上書きしてしまうため、ament 経由の呼び出し (colcon test / CI /
+# test_pep257.py) には同じリストを --add-ignore で明示的に渡すこと。
+[pydocstyle]
+# 前半は ament convention (D100-D107, D203, D212, D404) と同じ。追加分:
+#   D213           - サマリを 2 行目に書く流儀。既存コードは 1 行目サマリ (D212 側) を採用。
+#   D400/D401/D403/D415 - 英文前提のルール(末尾ピリオド・命令法・大文字化)。
+#                    日本語 docstring や製品名 (gRPC 等) と衝突するため無効化。
+#   D406/D407/D413 - numpy 形式のセクション下線を要求するルール。Google スタイルの
+#                    "Args:"/"Returns:" セクションと衝突するため無効化。
+ignore = D100,D101,D102,D103,D104,D105,D106,D107,D203,D212,D404,D213,D400,D401,D403,D406,D407,D413,D415
+# 生成コード (*_pb2*.py) と vendored コード (omnivla_edge_model.py) はチェックしない。
+match = (?!.*_pb2)(?!omnivla_edge_model).*\.py
+# ドット/アンダースコア始まりに加えて build ディレクトリ(setup.py build の産物)を除外。
+match_dir = (?!build)[^\._].*

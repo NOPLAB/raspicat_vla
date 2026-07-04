@@ -57,8 +57,10 @@ def _stub_prompt_builder_cls():
     class _PB:
         def __init__(self, name):
             self._turns = []
+
         def add_turn(self, role, text):
             self._turns.append((role, text))
+
         def get_prompt(self) -> str:
             return ' '.join(t for _, t in self._turns)
     return _PB
@@ -74,7 +76,7 @@ def _stub_prompt_builder_cls():
         (True, True, False, 8),   # language + pose
         (False, False, True, 6),  # image only
         (False, True, True, 5),   # pose + image
-        (False, False, False, 7), # nothing -> language fallback
+        (False, False, False, 7),  # nothing -> language fallback
     ],
 )
 def test_determine_modality_id(has_lang, has_pose, has_image_goal, expected):
@@ -86,8 +88,10 @@ def test_determine_modality_id(has_lang, has_pose, has_image_goal, expected):
 # ---------------------------------------------------------------- _goal_pose_cos_sin
 
 def test_goal_pose_cos_sin_normalizes_xy_by_waypoint_spacing():
-    """x/y are converted from metres to waypoint-spacing units (/0.1);
-    theta becomes (cos, sin). Mirrors run_omnivla.py's goal_pose_loc_norm."""
+    """x/y are converted from metres to waypoint-spacing units (/0.1).
+
+    theta becomes (cos, sin). Mirrors run_omnivla.py's goal_pose_loc_norm.
+    """
     out = _goal_pose_cos_sin((1.0, 2.0, math.pi / 2), pose_dim=4)
     assert out.shape == (4,)
     assert pytest.approx(out[0]) == 1.0 / METRIC_WAYPOINT_SPACING   # 10.0

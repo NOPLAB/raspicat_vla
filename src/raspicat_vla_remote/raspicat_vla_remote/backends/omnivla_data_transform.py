@@ -138,7 +138,8 @@ def build_inference_batch(
     actions = np.zeros((num_actions_chunk, action_dim), dtype=np.float32)
     current_action = actions[0]
     future_actions = actions[1:]
-    action_chunk_string = action_tokenizer(current_action) + ''.join(action_tokenizer(future_actions))
+    action_chunk_string = action_tokenizer(
+        current_action) + ''.join(action_tokenizer(future_actions))
     action_chunk_len = len(action_chunk_string)
 
     # 2. Build conversation + prompt + tokenize.

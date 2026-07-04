@@ -21,6 +21,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         python3-colcon-common-extensions \
         ros-humble-cv-bridge \
         ros-humble-diagnostic-msgs \
+        ros-humble-ament-flake8 \
+        ros-humble-ament-pep257 \
     && rm -rf /var/lib/apt/lists/*
 
 # gRPC + protobuf for the proto stubs.

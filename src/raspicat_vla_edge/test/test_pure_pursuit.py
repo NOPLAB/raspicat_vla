@@ -1,6 +1,4 @@
 """Tests for Pure Pursuit controller."""
-import math
-
 import pytest
 
 from raspicat_vla_edge.pure_pursuit import PurePursuit, Pose2D, Waypoint

@@ -104,8 +104,9 @@ def test_cache_invalidate_with_floor_rejects_stale_frames():
 
 
 def test_cache_invalidate_floor_sticky_until_exceeded():
-    """After a floor-bypassing put lands, monotonicity (frame_id > latest.frame_id)
-    keeps older frames out — documenting the intended composition with
+    """After a floor-bypassing put lands, monotonicity keeps older frames out.
+
+    (frame_id > latest.frame_id) — documenting the intended composition with
     invalidate(floor=...).
     """
     cache = EmbeddingCache(max_age_sec=6.0, hard_timeout_sec=15.0)

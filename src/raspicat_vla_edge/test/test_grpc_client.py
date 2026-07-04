@@ -62,10 +62,13 @@ def test_client_round_trips_via_dummy_server(server):
 
 
 def test_client_coalesces_when_caller_outpaces_remote(server):
-    """When sends pile up faster than the remote drains, intermediate
+    """Coalescing: intermediate observations drop, the newest always arrives.
+
+    When sends pile up faster than the remote drains, intermediate
     observations are dropped (latest_only + max_inflight) but the most recent
     frame is always eventually delivered — so the returned frame_id can't lag
-    the send counter without bound (the bug that stalled the sim)."""
+    the send counter without bound (the bug that stalled the sim).
+    """
     received = []
     cond = threading.Condition()
 

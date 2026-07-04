@@ -1,9 +1,10 @@
-"""Launch the VLA edge lifecycle node (auto-transitions to active).
+r"""Launch the VLA edge lifecycle node (auto-transitions to active).
 
 Optional launch args (override edge_params.yaml):
   remote_address  - gRPC server address (default: from yaml, typically localhost:50051)
   adapter_kind    - stub|asyncvla|omnivla
-  image_topic     - camera image topic (default: /camera/image_raw; raspicat_sim uses /camera/color/image_raw)
+  image_topic     - camera image topic (default: /camera/image_raw;
+                    raspicat_sim uses /camera/color/image_raw)
   camera_kind     - ''|v4l2|realsense. Empty (default) = the edge subscribes to
                     image_topic (frames come from elsewhere). v4l2 = the edge
                     node grabs camera_device IN-PROCESS (no driver node, no DDS
@@ -70,7 +71,8 @@ def generate_launch_description():
         DeclareLaunchArgument('camera_device', default_value=''),
         DeclareLaunchArgument('with_follower', default_value='false'),
         DeclareLaunchArgument('cmd_vel_topic', default_value='/cmd_vel'),
-        DeclareLaunchArgument('asyncvla_weights_path', default_value='/workspace/models/AsyncVLA_release'),
+        DeclareLaunchArgument('asyncvla_weights_path',
+                              default_value='/workspace/models/AsyncVLA_release'),
         DeclareLaunchArgument('asyncvla_resume_step', default_value='750000'),
         DeclareLaunchArgument('asyncvla_device', default_value='cpu'),
         *edge_actions,

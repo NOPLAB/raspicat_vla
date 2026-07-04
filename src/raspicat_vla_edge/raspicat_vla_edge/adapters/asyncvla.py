@@ -54,7 +54,8 @@ def _preprocess_for_edge_adapter(image_rgb: np.ndarray) -> np.ndarray:
     INTER_AREA pass from full resolution has visibly different statistics.
     """
     if image_rgb.dtype != np.uint8 or image_rgb.ndim != 3 or image_rgb.shape[2] != 3:
-        raise ValueError(f'expected uint8 HxWx3 RGB, got dtype={image_rgb.dtype} shape={image_rgb.shape}')
+        raise ValueError(
+            f'expected uint8 HxWx3 RGB, got dtype={image_rgb.dtype} shape={image_rgb.shape}')
     img = cv2.resize(image_rgb, (224, 224), interpolation=cv2.INTER_LINEAR)
     img = cv2.resize(img, (96, 96), interpolation=cv2.INTER_LINEAR)
     arr = img.astype(np.float32) / 255.0
@@ -163,8 +164,10 @@ class AsyncVLAEdgeAdapter(EdgeAdapter):
 
         import torch
 
-        cur = torch.from_numpy(_preprocess_for_edge_adapter(cur_image_rgb)).to(self._device).to(self._dtype)
-        past = torch.from_numpy(_preprocess_for_edge_adapter(past_image_rgb)).to(self._device).to(self._dtype)
+        cur = torch.from_numpy(_preprocess_for_edge_adapter(
+            cur_image_rgb)).to(self._device).to(self._dtype)
+        past = torch.from_numpy(_preprocess_for_edge_adapter(
+            past_image_rgb)).to(self._device).to(self._dtype)
 
         B, num_tokens, embed_dim = embedding_shape
         feat = (
@@ -176,7 +179,7 @@ class AsyncVLAEdgeAdapter(EdgeAdapter):
 
         with torch.no_grad():
             delta = self._model(cur, past, feat)        # (1, 8, 4)
-        poses = _delta_to_pose_np(delta.cpu().numpy()) # (1, 8, 4)
+        poses = _delta_to_pose_np(delta.cpu().numpy())  # (1, 8, 4)
         # delta_to_pose accumulates world-frame poses but keeps x/y in
         # waypoint-spacing units; scale to metres here (pd_controller parity).
         return trajectory_to_path(

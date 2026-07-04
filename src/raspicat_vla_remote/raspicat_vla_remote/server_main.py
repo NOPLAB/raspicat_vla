@@ -74,7 +74,8 @@ def _build_backend(args: argparse.Namespace):
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description='VLA gRPC server (dummy/asyncvla/omnivla/omnivla_edge)')
+    parser = argparse.ArgumentParser(
+        description='VLA gRPC server (dummy/asyncvla/omnivla/omnivla_edge)')
     parser.add_argument('--backend', default='dummy',
                         choices=['dummy', 'asyncvla', 'omnivla', 'omnivla_edge'])
     parser.add_argument('--host', default='0.0.0.0')
@@ -89,7 +90,8 @@ def main() -> None:
 
     # Real-model (asyncvla/omnivla) knobs.
     parser.add_argument('--vla-path', default='/workspace/models/omnivla-original',
-                        help='checkpoint dir (omnivla: ./models/omnivla-original; asyncvla: ./models/AsyncVLA_release)')
+                        help='checkpoint dir (omnivla: ./models/omnivla-original; '
+                             'asyncvla: ./models/AsyncVLA_release)')
     parser.add_argument('--resume-step', type=int, default=120000)
     parser.add_argument('--device', default='cuda:0')
     # OmniVLA-edge (Path 3) only. --vla-path doubles as the .pth weights file.

@@ -1,5 +1,4 @@
-"""Smoke test: bring up the edge node connected to a DummyServer and verify
-that a Path is published within a short timeout."""
+"""Smoke test: edge node + DummyServer must publish a Path within a short timeout."""
 import threading
 import time
 

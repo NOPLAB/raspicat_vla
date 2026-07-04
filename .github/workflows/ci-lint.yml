@@ -1,0 +1,63 @@
+# raspicat_vla_* パッケージを ament linter (flake8 / pep257 / xmllint / lint_cmake)
+# でチェックする。C++ ソースが無いため clang-format / uncrustify / cpplint は
+# 回さない。copyright はライセンスヘッダを付けない方針のため対象外。
+#
+# 実行コマンドは `ament_<linter> <パッケージパス...> <arguments>` の形
+# (action-ros-lint が組み立てる)。flake8 はリポジトリ共通の .flake8 を、
+# pep257 は .pydocstyle と同じ ignore リストを arguments で渡す
+# (ament_pep257 は設定ファイルを読まないため。変更時は .pydocstyle /
+#  各 test_pep257.py / CMakeLists.txt と同期させること)。
+name: ci-lint
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - '.flake8'
+      - '.pydocstyle'
+      - '.github/workflows/ci-lint.yml'
+  pull_request:
+    paths:
+      - 'src/**'
+      - '.flake8'
+      - '.pydocstyle'
+      - '.github/workflows/ci-lint.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ament_lint:
+    # ROS2 humble の apt パッケージは Ubuntu 22.04 のみ。ubuntu-latest (24.04) は不可。
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - linter: flake8
+            arguments: '--config .flake8'
+          - linter: pep257
+            arguments: '--add-ignore D213 D400 D401 D403 D406 D407 D413 D415'
+          - linter: xmllint
+            arguments: ''
+          - linter: lint_cmake
+            arguments: ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ros-tooling/setup-ros@v0.7
+        with:
+          required-ros-distributions: humble
+      - uses: ros-tooling/action-ros-lint@v0.1
+        with:
+          distribution: humble
+          linter: ${{ matrix.linter }}
+          arguments: ${{ matrix.arguments }}
+          package-name: >-
+            raspicat_vla_bringup
+            raspicat_vla_core
+            raspicat_vla_edge
+            raspicat_vla_msgs
+            raspicat_vla_proto
+            raspicat_vla_remote

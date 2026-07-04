@@ -115,7 +115,8 @@ def _pose_goal_vector(pose_xy_theta) -> np.ndarray:
     is already robot-relative metres (no edge tf in v1), so no swap here. Range
     is clamped to thres_dist first.
     """
-    x_fwd, y_left, theta = float(pose_xy_theta[0]), float(pose_xy_theta[1]), float(pose_xy_theta[2])
+    x_fwd, y_left, theta = float(pose_xy_theta[0]), float(
+        pose_xy_theta[1]), float(pose_xy_theta[2])
     radius = math.hypot(x_fwd, y_left)
     if radius > _GOAL_DIST_THRESHOLD_M:
         scale = _GOAL_DIST_THRESHOLD_M / radius

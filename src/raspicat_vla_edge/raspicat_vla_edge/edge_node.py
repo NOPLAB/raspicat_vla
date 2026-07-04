@@ -15,7 +15,6 @@ import numpy as np
 import rclpy
 from cv_bridge import CvBridge
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
-from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Path
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
@@ -62,7 +61,8 @@ def _build_adapter(kind: str, *, params: dict) -> EdgeAdapter:
     if kind == 'asyncvla':
         from .adapters.asyncvla import AsyncVLAEdgeAdapter
         return AsyncVLAEdgeAdapter(
-            weights_path=str(params.get('asyncvla_weights_path', '/workspace/models/AsyncVLA_release')),
+            weights_path=str(params.get('asyncvla_weights_path',
+                             '/workspace/models/AsyncVLA_release')),
             resume_step=int(params.get('asyncvla_resume_step', 750000)),
             device=str(params.get('asyncvla_device', 'cpu')),
         )

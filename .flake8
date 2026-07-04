@@ -1,0 +1,32 @@
+# raspicat_vla_* パッケージ共通の flake8 設定。
+# ament_flake8 (colcon test / CI) と pre-commit / ホストの flake8 の両方から
+# --config で参照される。ament_flake8 のデフォルト (max-line-length=99) に合わせる。
+[flake8]
+max-line-length = 99
+# I:   import-order (flake8-import-order)。既存コードの import 順と乖離が大きく、
+#      自動修正手段もないため無効化。
+# D:   docstring (flake8-docstrings)。docstring は ament_pep257 側でチェックする。
+# Q:   quotes (flake8-quotes)。引用符スタイルは強制しない。
+# B,C: ament_flake8 デフォルト設定が ignore しているものに合わせる。
+extend-ignore = B902, C816, D, I, Q
+import-order-style = google
+# 注意: ./ 無しの裸のパターンは同名ディレクトリすべてに一致する
+# (例: "models" は src/raspicat_vla_core/raspicat_vla_core/models/ も除外してしまう)。
+# リポジトリ直下だけを除外したいものは ./ を付けてルート相対にする。
+# omnivla_edge_model.py は external/OmniVLA からの verbatim 移植
+# (checkpoint 契約: リファクタ禁止) のため lint しない。
+exclude =
+    *_pb2.py,
+    *_pb2_grpc.py,
+    omnivla_edge_model.py,
+    .git,
+    build,
+    ./install,
+    ./log,
+    ./external,
+    ./models,
+    ./app,
+    ./web,
+    node_modules
+show-source = true
+statistics = true

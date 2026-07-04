@@ -83,7 +83,8 @@ class OpenVLAOFTBackendBase(VLABackend):
         AutoConfig.register('openvla', OpenVLAConfig, exist_ok=True)
         AutoImageProcessor.register(OpenVLAConfig, PrismaticImageProcessor, exist_ok=True)
         AutoProcessor.register(OpenVLAConfig, PrismaticProcessor, exist_ok=True)
-        AutoModelForVision2Seq.register(OpenVLAConfig, OpenVLAForActionPrediction_MMNv1, exist_ok=True)
+        AutoModelForVision2Seq.register(
+            OpenVLAConfig, OpenVLAForActionPrediction_MMNv1, exist_ok=True)
 
         _LOG.info('loading processor + backbone from %s', vla_path)
         self._processor = AutoProcessor.from_pretrained(vla_path, trust_remote_code=True)

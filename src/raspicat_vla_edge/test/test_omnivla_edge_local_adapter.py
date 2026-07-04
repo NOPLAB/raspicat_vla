@@ -137,8 +137,10 @@ def test_omnivla_edge_local_full_forward():
 
 
 def test_local_adapter_is_local_true():
-    """The edge node uses is_local to bypass the cloud/cache. Checked without
-    loading the model (via __new__)."""
+    """The edge node uses is_local to bypass the cloud/cache.
+
+    Checked without loading the model (via __new__).
+    """
     from raspicat_vla_edge.adapters import omnivla_edge_local as mod
     adapter = mod.OmniVLAEdgeLocalAdapter.__new__(mod.OmniVLAEdgeLocalAdapter)
     assert adapter.is_local is True
@@ -153,8 +155,10 @@ def test_cloud_adapters_are_not_local():
 
 
 def test_predict_path_without_goal_returns_empty(monkeypatch):
-    """Before a goal arrives, predict_path must yield an empty (safe-stop) Path
-    without touching torch/clip. We stub __init__ to avoid loading the model."""
+    """Before a goal arrives, predict_path must yield an empty (safe-stop) Path.
+
+    Must not touch torch/clip; we stub __init__ to avoid loading the model.
+    """
     from raspicat_vla_edge.adapters import omnivla_edge_local as mod
 
     adapter = mod.OmniVLAEdgeLocalAdapter.__new__(mod.OmniVLAEdgeLocalAdapter)

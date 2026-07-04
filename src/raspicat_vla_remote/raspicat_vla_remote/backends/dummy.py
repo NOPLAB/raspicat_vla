@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Optional, Tuple
+from typing import Tuple
 
 import numpy as np
 

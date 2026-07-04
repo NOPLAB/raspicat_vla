@@ -40,6 +40,7 @@ class PathPoint:
     w=cos, z=sin). They are only consulted in the degenerate case where the
     chosen waypoint sits on the robot (dx==dy==0) and we must rotate in place.
     """
+
     x: float
     y: float
     cos: float = 1.0

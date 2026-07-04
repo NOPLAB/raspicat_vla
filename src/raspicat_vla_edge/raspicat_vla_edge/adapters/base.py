@@ -1,4 +1,4 @@
-"""EdgeAdapter ABC. Concrete adapters (stub / asyncvla / omnivla / omnivla_edge_local) implement this."""
+"""EdgeAdapter ABC, implemented by stub / asyncvla / omnivla / omnivla_edge_local adapters."""
 from __future__ import annotations
 
 from abc import ABC, abstractmethod

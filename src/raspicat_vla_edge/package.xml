@@ -29,6 +29,8 @@
   <!-- adapters/omnivla_edge_local.py wraps the shared OmniVLAEdgeEngine. -->
   <exec_depend>raspicat_vla_core</exec_depend>
 
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
   <test_depend>python3-pytest</test_depend>
 
   <export>

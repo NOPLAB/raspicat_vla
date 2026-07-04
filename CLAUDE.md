@@ -105,6 +105,16 @@ scripts/vla.sh test src/raspicat_vla_edge/test/test_pure_pursuit.py
 
 Heavy integration tests that need GPUs/weights are gated by `ASYNCVLA_E2E` / `OMNIVLA_E2E` env vars and skip cleanly otherwise.
 
+## Lint / Format
+
+Configs live at the repo root: `.flake8` (shared by ament_flake8, CI, pre-commit) and `.pydocstyle`. Layers: per-package `test_flake8_*.py` / `test_pep257_*.py` run under `vla.sh test` (filename suffix avoids pytest module-name collisions in the one-shot run); CI is `.github/workflows/ci-lint.yml` (action-ros-lint); host-side `pre-commit` uses PyPI flake8/pydocstyle/autopep8 since no ROS is installed locally.
+
+Non-obvious constraints:
+
+- **ament_pep257 never reads config files** (its own CLI args always win), so the pep257 ignore list is duplicated in four places that must stay in sync: `.pydocstyle`, each `test_pep257_*.py`, `ci-lint.yml`, and nowhere in CMake — the bringup/msgs `colcon test` skips pep257 entirely because humble's `find_package(ament_cmake_pep257)` unconditionally re-registers the auto hook (duplicate test name) and the hook can't take arguments; CI covers those packages instead.
+- `omnivla_edge_model.py` (vendored verbatim, checkpoint contract) and `*_pb2*.py` (generated) are excluded from every linter/formatter — when adding an exclusion, remember flake8's bare patterns match any same-named directory (use `./`-anchored entries for repo-root dirs; that's how `models` once silently skipped `raspicat_vla_core/.../models/`).
+- Intentionally disabled rule families: import-order (I…, no autofixer, large existing divergence), D213 (ROS-core second-line summary style vs this repo's first-line style), D400/D401/D403/D415 (English-prose rules that fight Japanese docstrings), D406/D407/D413 (numpy sections vs Google style).
+
 ## Conventions worth knowing
 
 - The `dummy` backend ignores image contents on purpose; the server falls back to a 1×1 placeholder on JPEG decode failure, which is why Plan-1 tests pass JPEG-shaped garbage. Real backends consume images via HF processors that fail noisily, so the silent fallback is safe in dummy-only paths.

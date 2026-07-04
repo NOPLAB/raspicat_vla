@@ -13,6 +13,8 @@
        the ROS-free remote server containers. torch / clip / efficientnet are
        lazy-imported by the engine and provided by the Docker images. -->
 
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
   <test_depend>python3-pytest</test_depend>
 
   <export>

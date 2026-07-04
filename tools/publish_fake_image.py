@@ -1,6 +1,5 @@
 """Publish a constant black image at 5 Hz on /camera/image_raw, plus a fixed goal."""
 import sys
-import time
 
 import numpy as np
 import rclpy

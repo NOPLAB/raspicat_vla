@@ -126,7 +126,8 @@ def _status(node: Node) -> int:
             seen[topic] = fmt(msg)
         return node.create_subscription(msg_type, topic, cb, 1)
 
-    twist_fmt = lambda m: f'lin.x={m.linear.x:.3f} ang.z={m.angular.z:.3f}'
+    def twist_fmt(m):
+        return f'lin.x={m.linear.x:.3f} ang.z={m.angular.z:.3f}'
     # /cmd_vel      -> real robot / edge-local; /cmd_vel_vla -> cmd_vel preview
     # mode (non-motor topic); /sim_cmd_vel + /odom -> Gazebo sim. Whichever the
     # running mode doesn't publish simply shows "(no message)".
