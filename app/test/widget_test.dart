@@ -1,4 +1,4 @@
-// 前処理コアの単体テスト (docs/mobile_port_spec.md §3 の正解定義)。
+// 前処理コアの単体テスト (docs/design/mobile_port_spec.md §3 の正解定義)。
 // Phase 2 で PyTorch 参照とゴールデン一致させる際の足場。
 
 import 'dart:typed_data';

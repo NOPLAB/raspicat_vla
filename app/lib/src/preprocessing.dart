@@ -1,6 +1,6 @@
 /// 前処理: リサイズ / ImageNet 正規化 / リングバッファ / ゴール tensor。
 ///
-/// `omnivla_edge_engine.py` の以下と 1:1 対応 (docs/mobile_port_spec.md §3.2):
+/// `omnivla_edge_engine.py` の以下と 1:1 対応 (docs/design/mobile_port_spec.md §3.2):
 ///  - `_normalize_chw`  -> [normalizeChw]
 ///  - `_black_chw`      -> [blackChw]
 ///  - `_pose_goal_vector` -> [poseGoalVector]

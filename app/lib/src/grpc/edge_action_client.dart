@@ -4,14 +4,22 @@
 /// 最新の chunk だけを保持し、一定レートでのみ送信する。遅い/切れたリンクが
 /// 制御ループを詰まらせないようにするための不変条件。ここでも守る。
 ///
-/// gRPC 実装は proto 生成後 (docs §6 Phase 4) に [GrpcEdgeClient] を差し込む。
-/// それまでは [LoggingEdgeClient] で端末内可視化のみ行い、アプリは動く。
+/// 実送信は [GrpcEdgeClient] (proto/edge_action.proto の
+/// EdgeActionService.StreamActions、Pi 側は edge_action_grpc_node)。
+/// Pi 未接続時は [LoggingEdgeClient] で端末内可視化のみ行い、アプリは動く。
 library;
 
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:fixnum/fixnum.dart';
+import 'package:grpc/grpc.dart';
+
 import '../action_chunk.dart';
+import 'gen/edge_action.pbgrpc.dart' as pb;
+
+/// EdgeActionService の既定ポート (vla.sh の EDGE_ACTION_PORT と一致)。
+const int kDefaultEdgeActionPort = 50061;
 
 /// fp16 little-endian へパック (proto ActionChunk.values_fp16 用)。
 Uint8List packFp16(Float32List values) {
@@ -54,6 +62,109 @@ class LoggingEdgeClient implements EdgeActionClient {
 
   @override
   Future<void> close() async {}
+}
+
+/// Pi の EdgeActionService へ chunk を stream 送信する gRPC クライアント。
+///
+/// - x,y はスマホ側でメートル化して送る (`scaled_to_m=true`,
+///   mobile_port_spec §5-D の推奨解)。Pi 側は両対応。
+/// - 切断されても [send] は失敗させない: ストリームを破棄して次回 send で
+///   張り直す (TCP 再接続は gRPC チャネルが担う)。制御ループ非停止の不変条件。
+class GrpcEdgeClient implements EdgeActionClient {
+  GrpcEdgeClient(this.host, {this.port = kDefaultEdgeActionPort});
+
+  final String host;
+  final int port;
+
+  ClientChannel? _channel;
+  pb.EdgeActionServiceClient? _stub;
+  StreamController<pb.ActionChunk>? _requests;
+  String _status = '未接続';
+
+  @override
+  Future<void> connect() async {
+    _channel ??= ClientChannel(
+      host,
+      port: port,
+      options: const ChannelOptions(
+        credentials: ChannelCredentials.insecure(),
+        connectionTimeout: Duration(seconds: 5),
+        // Wi-Fi 断からの復帰を自動で拾う。
+        backoffStrategy: defaultBackoffStrategy,
+      ),
+    );
+    _stub ??= pb.EdgeActionServiceClient(_channel!);
+    _status = '接続待ち $host:$port';
+    _ensureStream();
+  }
+
+  /// 双方向ストリームを (再) 確立する。ack/エラーは status に反映するだけで、
+  /// 送信側 (CoalescingSender) を止めない。
+  void _ensureStream() {
+    if (_requests != null) return;
+    final requests = StreamController<pb.ActionChunk>();
+    _requests = requests;
+    final acks = _stub!.streamActions(requests.stream);
+    acks.listen(
+      (ack) {
+        _status = 'Pi応答 #${ack.frameId} '
+            '${ack.following ? "追従中" : "停止"} (${ack.status})';
+      },
+      onError: (Object e) {
+        _status = '切断: ${e is GrpcError ? (e.message ?? e.codeName) : e}';
+        _dropStream(requests);
+      },
+      onDone: () {
+        if (identical(_requests, requests)) _status = 'ストリーム終了';
+        _dropStream(requests);
+      },
+      cancelOnError: true,
+    );
+  }
+
+  void _dropStream(StreamController<pb.ActionChunk> requests) {
+    if (identical(_requests, requests)) _requests = null;
+    unawaited(requests.close());
+  }
+
+  @override
+  Future<void> send(ActionChunk chunk,
+      {required int frameId, required String goalId}) async {
+    if (_stub == null) await connect();
+    _ensureStream();
+    // メートル化した (x, y, cos, sin) × numTokens を fp16 でパック。
+    final values = Float32List(chunk.numTokens * chunk.embedDim);
+    for (var i = 0; i < chunk.numTokens; i++) {
+      final row = chunk.rowMetres(i);
+      for (var j = 0; j < chunk.embedDim; j++) {
+        values[i * chunk.embedDim + j] = row[j];
+      }
+    }
+    _requests!.add(pb.ActionChunk(
+      frameId: Int64(frameId),
+      captureTimeNs: Int64(DateTime.now().microsecondsSinceEpoch) * 1000,
+      numTokens: chunk.numTokens,
+      embedDim: chunk.embedDim,
+      valuesFp16: packFp16(values),
+      scaledToM: true,
+      goalId: goalId,
+      fromModel: chunk.fromModel,
+    ));
+  }
+
+  @override
+  String get status => '$host:$port  $_status';
+
+  @override
+  Future<void> close() async {
+    final requests = _requests;
+    _requests = null;
+    await requests?.close();
+    await _channel?.shutdown();
+    _channel = null;
+    _stub = null;
+    _status = '切断済み';
+  }
 }
 
 /// 最新 chunk のみ保持し最大レートで送る coalescing/pacing ラッパー。

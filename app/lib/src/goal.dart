@@ -30,7 +30,7 @@ class Goal {
         image = null;
 
   /// [x], [y] はロボット相対メートル (x=前方, y=左), [theta] は rad。
-  /// v1 ではスマホ UI で直接指定 (docs/mobile_port_spec.md 未決事項C=確定)。
+  /// v1 ではスマホ UI で直接指定 (docs/design/mobile_port_spec.md 未決事項C=確定)。
   Goal.pose(double x, double y, double theta)
       : mode = GoalMode.pose,
         text = '',

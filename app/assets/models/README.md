@@ -6,7 +6,7 @@
 必要ファイル:
 
 - `omnivla_edge.onnx` — `models/omnivla-edge/omnivla-edge.pth` を ONNX 化。
-  入力7本 (docs/mobile_port_spec.md §3.1)、出力 `action_pred (1,8,4)`。
+  入力7本 (docs/design/mobile_port_spec.md §3.1)、出力 `action_pred (1,8,4)`。
   export 時に `OmniVLA_edge.forward` の `tensor.get_device()` 依存を除去すること。
 - `clip_text.onnx` — CLIP ViT-B/32 の text encoder。入力 `tokens (1,77)` int、
   出力 `feat (1,512)`。

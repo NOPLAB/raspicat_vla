@@ -16,7 +16,7 @@ import 'package:onnxruntime/onnxruntime.dart';
 
 import '../config.dart';
 
-/// export 後に実際の入力名へ更新する (docs/mobile_port_spec.md §3.1 の 7 入力)。
+/// export 後に実際の入力名へ更新する (docs/design/mobile_port_spec.md §3.1 の 7 入力)。
 const _modelInputNames = (
   obsImages: 'obs_images',
   goalPose: 'goal_pose',

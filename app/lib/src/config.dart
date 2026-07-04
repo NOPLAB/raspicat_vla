@@ -2,7 +2,7 @@
 ///
 /// これらは `src/raspicat_vla_core/raspicat_vla_core/omnivla_edge_engine.py`
 /// の `_MODEL_PARAMS` / モジュール定数と **一致必須**。値を変えると
-/// omnivla-edge.pth との整合が崩れる。docs/mobile_port_spec.md §3 が正解定義。
+/// omnivla-edge.pth との整合が崩れる。docs/design/mobile_port_spec.md §3 が正解定義。
 library;
 
 class OmniVlaConfig {

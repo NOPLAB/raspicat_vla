@@ -1,7 +1,7 @@
 /// カメラフレーム (CameraImage) を package:image の RGB [img.Image] に変換する。
 ///
 /// Android は YUV420、iOS は BGRA8888 が来る。OmniVLA-edge は raspicat カメラの
-/// 画角で学習しているため (docs/mobile_port_spec.md §5-1 ドメインギャップ)、
+/// 画角で学習しているため (docs/design/mobile_port_spec.md §5-1 ドメインギャップ)、
 /// [centerCropToAspect] で学習時アスペクトに寄せてから正規化する想定。
 library;
 

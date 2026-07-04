@@ -2,7 +2,8 @@
 
 スマホがカメラ取得と **OmniVLA-edge のオンデバイス推論** を担い、Raspberry Pi
 (raspicat) はモーター制御だけを行う構成のクライアント。既存 Path 3 の Jetson を
-スマホへ置き換えたもの。設計は [`../docs/mobile_port_spec.md`](../docs/mobile_port_spec.md)。
+スマホへ置き換えたもの。設計は
+[`../docs/design/mobile_port_spec.md`](../docs/design/mobile_port_spec.md)。
 
 - 対象: Android / iOS (Flutter クロスプラットフォーム)
 - 推論: ONNX Runtime Mobile (`onnxruntime` プラグイン)
@@ -11,12 +12,25 @@
 
 ## 現状
 
-Phase 3 (アプリ骨組み) 実装済み。ONNX モデルと CLIP 語彙が **未配置でも起動する**
-— その場合は推論がダミー軌道になり、ステータスに「ダミー」と表示される。
+Phase 1–4 実装済み (仕様書 §6)。Pi への gRPC 送信も動く: AppBar の Wi-Fi
+アイコンから Pi の `IP[:ポート]` (既定 50061) を指定して接続する。Pi 側は
 
-配置すべきもの (詳細は各 README):
+```bash
+scripts/vla.sh run omnivla_edge_mobile --mode cmd_vel
+```
+
+で受信ノード + follower が立つ (`docs/USAGE.md` §5.7)。
+
+ONNX モデルと CLIP 語彙が **未配置でも起動する** — その場合は推論がダミー軌道に
+なり、ステータスに「ダミー」と表示される (Pi 側 ack も `ok-dummy` になる)。
+
+配置すべきもの (詳細は各 README、生成は `scripts/export_*.py`):
 - `assets/models/omnivla_edge.onnx`, `assets/models/clip_text.onnx` (Phase 1)
 - `assets/clip/bpe_simple_vocab_16e6.txt.gz` (Phase 2)
+
+gRPC の Dart スタブ (`lib/src/grpc/gen/`) はコミット済み。
+`proto/edge_action.proto` を変えたら `../scripts/gen_proto.sh` で再生成する
+(要 `dart pub global activate protoc_plugin`)。
 
 ## 開発環境 (このリポジトリで構築済み)
 

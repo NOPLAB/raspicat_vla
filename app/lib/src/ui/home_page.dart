@@ -36,8 +36,11 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   CameraController? _controller;
   final OmniVlaEngine _engine = OmniVlaEngine();
-  late final CoalescingSender _sender =
+  CoalescingSender _sender =
       CoalescingSender(LoggingEdgeClient(), minInterval: const Duration(milliseconds: 100));
+
+  /// 接続中の Pi (EdgeActionService) のアドレス。空 = 未接続 (端末内ログのみ)。
+  String _piAddress = '';
 
   Goal? _goal;
   CameraImage? _latestCameraImage;
@@ -164,6 +167,81 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     });
   }
 
+  /// Pi (raspicat) の EdgeActionService へ gRPC 接続する。送信経路は
+  /// CoalescingSender ごと差し替える (古い接続は close)。
+  Future<void> _connectPi(String input) async {
+    final trimmed = input.trim();
+    if (trimmed.isEmpty) return;
+    final sep = trimmed.lastIndexOf(':');
+    final host = sep < 0 ? trimmed : trimmed.substring(0, sep);
+    final port = sep < 0
+        ? kDefaultEdgeActionPort
+        : int.tryParse(trimmed.substring(sep + 1)) ?? kDefaultEdgeActionPort;
+
+    final old = _sender;
+    final client = GrpcEdgeClient(host, port: port);
+    _sender = CoalescingSender(client,
+        minInterval: const Duration(milliseconds: 100));
+    unawaited(old.close());
+    await client.connect();
+    if (mounted) setState(() => _piAddress = '$host:$port');
+  }
+
+  Future<void> _disconnectPi() async {
+    final old = _sender;
+    _sender = CoalescingSender(LoggingEdgeClient(),
+        minInterval: const Duration(milliseconds: 100));
+    unawaited(old.close());
+    if (mounted) setState(() => _piAddress = '');
+  }
+
+  void _openPiDialog() {
+    final controller = TextEditingController(
+      text: _piAddress.isEmpty ? '' : _piAddress,
+    );
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Raspberry Pi へ接続'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: TextInputType.url,
+          decoration: const InputDecoration(
+            labelText: 'IPアドレス[:ポート]',
+            hintText: '例: 192.168.11.2:$kDefaultEdgeActionPort',
+            helperText: 'vla.sh run omnivla_edge_mobile --mode cmd_vel の待受先',
+          ),
+          onSubmitted: (v) {
+            Navigator.of(context).pop();
+            _connectPi(v);
+          },
+        ),
+        actions: [
+          if (_piAddress.isNotEmpty)
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                _disconnectPi();
+              },
+              child: const Text('切断'),
+            ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('キャンセル'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _connectPi(controller.text);
+            },
+            child: const Text('接続'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _openGoalPanel() {
     showModalBottomSheet<void>(
       context: context,
@@ -202,6 +280,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       appBar: AppBar(
         title: const Text('Raspicat OmniVLA (edge)'),
         actions: [
+          IconButton(
+            tooltip: _piAddress.isEmpty ? 'Pi へ接続' : 'Pi: $_piAddress',
+            icon: Icon(
+              _piAddress.isEmpty ? Icons.wifi_off : Icons.wifi,
+              color: _piAddress.isEmpty ? null : Colors.lightGreenAccent,
+            ),
+            onPressed: _openPiDialog,
+          ),
           IconButton(
             tooltip: _running ? '推論を停止' : '推論を再生',
             icon: Icon(_running ? Icons.pause_circle : Icons.play_circle),

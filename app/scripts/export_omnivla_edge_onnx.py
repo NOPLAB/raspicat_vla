@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""OmniVLA-edge 本体モデルを ONNX 化する (Phase 1 / docs/mobile_port_spec.md §3.1)。
+"""OmniVLA-edge 本体モデルを ONNX 化する (Phase 1 / docs/design/mobile_port_spec.md §3.1)。
 
 - `omnivla_edge_model.py` を **無改変のまま** 読み込み、CPU export のために
   `tensor.get_device()` を `tensor.device` へ置換したコピーを exec する
