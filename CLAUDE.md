@@ -12,7 +12,7 @@ A newer, **separate** effort (`app/`, `docs/mobile_port_spec.md`) ports OmniVLA-
 
 ## Repository layout (non-obvious parts)
 
-- `src/raspicat_vla_*` — five colcon packages we own.
+- `src/raspicat_vla_*` — six colcon packages we own. `raspicat_vla_core` is the ROS-free OmniVLA-edge inference core (`OmniVLAEdgeEngine` + `models/`) shared by edge (Path 2) and remote (Path 3); keep it importable without rclpy/torch at module level — heavy deps are lazy-imported.
 - `src/raspicat_{ros,description,sim,slam_navigation}` — rt-net source packages, **not in git**. They are imported by vcstool from `raspicat.repos` and `.gitignore`d. Re-run `vcs import src < raspicat.repos` after editing the manifest.
 - `external/` — research submodules (`AsyncVLA`, `OmniVLA`, `MBRA`, `raspicat-sim-docker`). Reference code; **not built by colcon**. Vendored into the Docker images that need them (see `Dockerfile.real`/`.asyncvla`/`.omnivla`).
 - `models/` — downloaded VLA weights. Gitignored, populated by `scripts/download_{asyncvla,omnivla,omnivla_edge}_checkpoints.sh`.
@@ -27,7 +27,7 @@ A newer, **separate** effort (`app/`, `docs/mobile_port_spec.md`) ports OmniVLA-
 
 **Two ABCs define the swap points.** `raspicat_vla_remote.backends.base.VLABackend` (cloud inference) is selected in `server_main.py` via `--backend`; `raspicat_vla_edge.adapters.base.EdgeAdapter` (embedding → `nav_msgs/Path`) is selected by the `adapter_kind` ROS parameter, dispatched in `edge_node.py:_build_adapter`. The non-obvious member is `omnivla_edge_local` (**Plan 2B Path 2**): it runs the *whole* OmniVLA-edge model on the robot with **no cloud** — the edge node sets `local_mode`, skips gRPC entirely, and the adapter consumes the raw observation instead of a remote embedding. Every other adapter assumes a remote embedding arrives.
 
-**Mobile port re-implements the OmniVLA-edge preprocessing by hand.** The Python engine (`omnivla_edge_engine.py`) is the reference definition; the Flutter app reproduces its resize / ImageNet-normalize / ring-buffer / goal-tensor assembly natively. `app/lib/src/config.dart` mirrors the engine's `_MODEL_PARAMS` and must stay in lockstep — changing a constant on one side silently breaks agreement with `omnivla-edge.pth`. `docs/mobile_port_spec.md §3` is the authoritative data contract (7 ONNX inputs, output `(1,8,4)`); update it alongside any change.
+**Mobile port re-implements the OmniVLA-edge preprocessing by hand.** The Python engine (`raspicat_vla_core/omnivla_edge_engine.py`) is the reference definition; the Flutter app reproduces its resize / ImageNet-normalize / ring-buffer / goal-tensor assembly natively. `app/lib/src/config.dart` mirrors the engine's `_MODEL_PARAMS` and must stay in lockstep — changing a constant on one side silently breaks agreement with `omnivla-edge.pth`. `docs/mobile_port_spec.md §3` is the authoritative data contract (7 ONNX inputs, output `(1,8,4)`); update it alongside any change.
 
 **Edge node is a LifecycleNode.** Bringup launch files must drive the configure → activate transitions via `RegisterEventHandler` (see `dummy_local.launch.py`) — don't bypass the lifecycle.
 

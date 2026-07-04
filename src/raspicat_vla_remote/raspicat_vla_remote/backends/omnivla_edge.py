@@ -7,8 +7,8 @@ Raspberry Pi runs only the light path-only :class:`OmniVLAEdgeAdapter`
 (``adapter_kind=omnivla``) and turns those waypoints into a ``nav_msgs/Path``.
 
 The forward pass, CLIP and the observation ring buffer live in the shared
-:class:`~raspicat_vla_edge.omnivla_edge_engine.OmniVLAEdgeEngine` (imported from
-the edge package — it is ROS-free). This backend is the thin gRPC-facing layer:
+:class:`~raspicat_vla_core.omnivla_edge_engine.OmniVLAEdgeEngine` (imported from
+the ROS-free core package). This backend is the thin gRPC-facing layer:
 decode the goal, run the engine, scale the raw chunk to **metres** (so the Pi's
 path-only adapter, which does not rescale, plots the right geometry), and hand it
 back as the ``(NUM_ACTIONS_CHUNK, ACTION_DIM)`` ActionEmbedding payload.
@@ -63,9 +63,8 @@ class OmniVLAEdgeBackend(VLABackend):
         device: str = 'cuda:0',
     ) -> None:
         # Imported here (not at module top) so the module is importable for
-        # --help / arg parsing without torch/clip; the edge package is ROS-free
-        # in this path (only omnivla_edge_engine + models are touched).
-        from raspicat_vla_edge.omnivla_edge_engine import OmniVLAEdgeEngine
+        # --help / arg parsing without torch/clip.
+        from raspicat_vla_core.omnivla_edge_engine import OmniVLAEdgeEngine
 
         self._engine = OmniVLAEdgeEngine(
             weights_path=weights_path, clip_type=clip_type, device=device,
@@ -135,5 +134,5 @@ class OmniVLAEdgeBackend(VLABackend):
 
 
 def _modality_id(mode: str) -> int:
-    from raspicat_vla_edge.omnivla_edge_engine import _modality_id_for
+    from raspicat_vla_core.omnivla_edge_engine import _modality_id_for
     return _modality_id_for(mode)

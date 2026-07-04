@@ -7,7 +7,7 @@ node runs in *standalone* mode (``is_local`` is True): the action loop drives
 :meth:`predict_path` straight from the latest camera frame + goal.
 
 The heavy lifting (model, CLIP, observation history, goal tensors) lives in the
-ROS-free :class:`~raspicat_vla_edge.omnivla_edge_engine.OmniVLAEdgeEngine`, which
+ROS-free :class:`~raspicat_vla_core.omnivla_edge_engine.OmniVLAEdgeEngine`, which
 Path 3's Jetson backend (``raspicat_vla_remote.backends.omnivla_edge``) reuses.
 This adapter is the thin ROS layer on top: hold the goal, call the engine, scale
 the raw chunk to metres and build the Path.
@@ -35,7 +35,7 @@ from .base import EdgeAdapter, EdgeGoal
 from ._path_util import trajectory_to_path
 # Re-export the ROS-free pipeline pieces from the shared engine so existing
 # imports (and unit tests) that reach them here keep working.
-from ..omnivla_edge_engine import (  # noqa: F401
+from raspicat_vla_core.omnivla_edge_engine import (  # noqa: F401
     _METRIC_WAYPOINT_SPACING,
     _MODEL_PARAMS,
     OmniVLAEdgeEngine,

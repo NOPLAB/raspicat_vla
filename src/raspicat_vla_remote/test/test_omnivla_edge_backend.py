@@ -25,7 +25,7 @@ def test_goal_mode_prefers_text_then_image_then_pose():
 
 @pytest.mark.skipif(
     os.environ.get('OMNIVLA_EDGE_E2E') != '1',
-    reason='set OMNIVLA_EDGE_E2E=1 (needs CUDA + omnivla-edge.pth + CLIP + raspicat_vla_edge)',
+    reason='set OMNIVLA_EDGE_E2E=1 (needs CUDA + omnivla-edge.pth + CLIP + raspicat_vla_core)',
 )
 def test_omnivla_edge_backend_returns_scaled_action_chunk():
     import numpy as np

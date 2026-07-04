@@ -26,6 +26,8 @@
   <exec_depend>realsense2_camera</exec_depend>
   <exec_depend>raspicat_vla_msgs</exec_depend>
   <exec_depend>raspicat_vla_proto</exec_depend>
+  <!-- adapters/omnivla_edge_local.py wraps the shared OmniVLAEdgeEngine. -->
+  <exec_depend>raspicat_vla_core</exec_depend>
 
   <test_depend>python3-pytest</test_depend>
 

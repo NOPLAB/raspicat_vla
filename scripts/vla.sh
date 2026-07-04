@@ -399,7 +399,7 @@ _run_remote_server() {
         -v "$HF_CACHE_DIR:/root/.cache/huggingface" \
         "$image" bash -lc "
             cd /workspace
-            export PYTHONPATH=/workspace/src/raspicat_vla_proto:/workspace/src/raspicat_vla_remote:/workspace/src/raspicat_vla_edge\${PYTHONPATH:+:\$PYTHONPATH}
+            export PYTHONPATH=/workspace/src/raspicat_vla_proto:/workspace/src/raspicat_vla_remote:/workspace/src/raspicat_vla_core\${PYTHONPATH:+:\$PYTHONPATH}
             exec python3 -m raspicat_vla_remote.server_main \
                 --backend ${model} \
                 --host ${bind_host} \
@@ -418,14 +418,19 @@ run_remote() {
 # Build raspicat-vla packages inside the container (idempotent — colcon
 # detects already-built packages). Required because the rt-net packages are
 # pre-built in /opt/sim_ws but the user-side raspicat_vla_* are mounted.
+# Rebuilds when any package is missing from install/ (e.g. a newly added
+# package with a stale overlay), not just when install/ is absent entirely.
 _workspace_build_cmd() {
     cat <<'BUILD'
-if [ ! -f install/setup.bash ] || [ -n "$RASPICAT_VLA_REBUILD" ]; then
+_vla_pkgs="raspicat_vla_msgs raspicat_vla_proto raspicat_vla_core \
+           raspicat_vla_remote raspicat_vla_edge raspicat_vla_bringup"
+_vla_need_build=$RASPICAT_VLA_REBUILD
+for _p in $_vla_pkgs; do
+    [ -d "install/$_p" ] || _vla_need_build=1
+done
+if [ -n "$_vla_need_build" ]; then
     echo "==> colcon build raspicat_vla_*" >&2
-    colcon build --symlink-install \
-        --packages-select raspicat_vla_msgs raspicat_vla_proto \
-                          raspicat_vla_remote raspicat_vla_edge \
-                          raspicat_vla_bringup
+    colcon build --symlink-install --packages-select $_vla_pkgs
 fi
 source install/setup.bash
 BUILD
@@ -829,6 +834,7 @@ cmd_test() {
 
     log "pytest in ${image} (${#args[@]} args)"
     docker run "${ROS_USER_BASE_ARGS[@]}" \
+        -e RASPICAT_VLA_REBUILD \
         "$image" bash -lc "
             set -e
             source /opt/ros/humble/setup.bash

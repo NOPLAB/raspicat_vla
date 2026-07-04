@@ -62,7 +62,7 @@ def _build_backend(args: argparse.Namespace):
         except ImportError as exc:
             raise SystemExit(
                 f'--backend omnivla_edge not available ({exc}); '
-                'needs torch + clip + efficientnet_pytorch and raspicat_vla_edge '
+                'needs torch + clip + efficientnet_pytorch and raspicat_vla_core '
                 'on PYTHONPATH',
             )
         return OmniVLAEdgeBackend(
