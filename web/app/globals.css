@@ -1,13 +1,16 @@
+/*
+ * 白地に墨一色の計測機器・銘板調。色相を持つ色は使わない —
+ * 状態の区別は 塗り/枠/破線 で表す (実推論=実線・塗り、ダミー=破線)。
+ */
+
 :root {
-  color-scheme: dark;
-  --bg: #101418;
-  --panel: #1a2027;
-  --panel-border: #2a323c;
-  --text: #e6ebf0;
-  --text-dim: #93a0ad;
-  --accent: #3dfc9a;
-  --warn: #ffc24b;
-  --error: #ff8a80;
+  color-scheme: light;
+  --paper: #ffffff;
+  --ink: #141414;
+  --ink-mute: #595959;
+  --hairline: #d9d9d9;
+  --mono:
+    ui-monospace, "SFMono-Regular", "Cascadia Mono", "Courier New", monospace;
 }
 
 * {
@@ -16,52 +19,85 @@
 
 body {
   margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font-family: "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  background: var(--paper);
+  color: var(--ink);
+  font-family:
+    "Helvetica Neue", Arial, "Hiragino Sans", "Noto Sans JP", system-ui,
+    sans-serif;
   font-size: 14px;
+  -webkit-font-smoothing: antialiased;
 }
 
 .app {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 16px;
+  padding: 24px 16px 48px;
 }
 
+/* 機材の銘板: 外罫 + 内罫の二重ルール */
 .app-header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
+  justify-content: space-between;
   gap: 12px;
-  margin-bottom: 12px;
+  flex-wrap: wrap;
+  border: 2px solid var(--ink);
+  padding: 12px 16px;
+  margin-bottom: 24px;
+  position: relative;
+}
+
+.app-header::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border: 1px solid var(--ink);
+  pointer-events: none;
 }
 
 .app-header h1 {
-  font-size: 18px;
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
   margin: 0;
 }
 
+.app-header .spec {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--ink-mute);
+  margin: 2px 0 0;
+  width: 100%;
+}
+
 .badge {
-  font-size: 12px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--panel-border);
-  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  padding: 4px 10px;
+  border: 1px solid var(--ink);
+  color: var(--ink);
+  white-space: nowrap;
 }
 
+/* 実推論 chunk が流れている: 塗り */
 .badge.ok {
-  color: var(--accent);
-  border-color: var(--accent);
+  background: var(--ink);
+  color: var(--paper);
 }
 
+/* ダミー軌道: 破線枠 */
 .badge.warn {
-  color: var(--warn);
-  border-color: var(--warn);
+  border-style: dashed;
 }
 
 .content {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
-  gap: 16px;
+  gap: 20px;
 }
 
 @media (max-width: 860px) {
@@ -73,7 +109,7 @@ body {
 .viewport {
   position: relative;
   background: #000;
-  border-radius: 8px;
+  border: 1px solid var(--ink);
   overflow: hidden;
   aspect-ratio: 4 / 3;
 }
@@ -98,17 +134,21 @@ body {
   left: 8px;
   right: 8px;
   padding: 8px 12px;
-  background: rgba(0, 0, 0, 0.55);
-  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.62);
+  color: #fff;
   font-size: 12px;
-  line-height: 1.6;
-  font-family: ui-monospace, "Cascadia Mono", monospace;
+  line-height: 1.7;
+  font-family: var(--mono);
   white-space: pre-wrap;
   word-break: break-all;
 }
 
+/* 映像上の黒帯内なので反転 (白地に黒字) で立てる */
 .status-bar .error {
-  color: var(--error);
+  display: inline-block;
+  background: #fff;
+  color: #000;
+  padding: 0 6px;
 }
 
 .viewport-placeholder {
@@ -119,48 +159,52 @@ body {
   gap: 8px;
   align-items: center;
   justify-content: center;
-  color: var(--text-dim);
+  color: #bbb;
   padding: 24px;
   text-align: center;
 }
 
 .panel {
-  background: var(--panel);
-  border: 1px solid var(--panel-border);
-  border-radius: 8px;
-  padding: 12px;
-  margin-bottom: 16px;
+  border: 1px solid var(--ink);
+  padding: 14px;
+  margin-bottom: 20px;
 }
 
 .panel h2 {
-  font-size: 13px;
-  margin: 0 0 10px;
-  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  margin: 0 0 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--hairline);
 }
 
 .row {
   display: flex;
   gap: 8px;
   align-items: center;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
   flex-wrap: wrap;
 }
 
 .row label,
 .row .row-label {
-  color: var(--text-dim);
+  color: var(--ink-mute);
+  font-family: var(--mono);
+  font-size: 12px;
 }
 
 input[type="text"],
 input[type="number"] {
-  background: #0d1116;
-  color: var(--text);
-  border: 1px solid var(--panel-border);
-  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--ink);
+  border-radius: 0;
   padding: 6px 8px;
   font-size: 13px;
+  font-family: var(--mono);
 }
 
 input[type="text"] {
@@ -169,75 +213,86 @@ input[type="text"] {
 }
 
 input[type="number"] {
-  width: 72px;
+  width: 76px;
+}
+
+input:disabled {
+  border-color: var(--hairline);
+  color: var(--ink-mute);
 }
 
 button {
-  background: #232b34;
-  color: var(--text);
-  border: 1px solid var(--panel-border);
-  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--ink);
+  border-radius: 0;
   padding: 6px 12px;
   font-size: 13px;
+  font-family: inherit;
   cursor: pointer;
 }
 
-button:hover {
-  border-color: var(--text-dim);
+button:hover:not(:disabled) {
+  background: var(--ink);
+  color: var(--paper);
 }
 
-button.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #04180d;
-  font-weight: 600;
+/* 選択中 / 主動作: 塗り */
+button.primary,
+button.active,
+.tabs button.active {
+  background: var(--ink);
+  color: var(--paper);
 }
 
 button:disabled {
-  opacity: 0.45;
+  background: var(--paper);
+  border-color: var(--hairline);
+  color: var(--ink-mute);
   cursor: default;
+}
+
+:where(button, input):focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
 }
 
 .tabs {
   display: flex;
-  gap: 4px;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 
 .tabs button {
   flex: 1;
   padding: 6px 0;
+  font-family: var(--mono);
+  font-size: 12px;
 }
 
-.tabs button.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #04180d;
-  font-weight: 600;
+.tabs button + button {
+  border-left: none;
 }
 
 .progress {
-  height: 6px;
-  border-radius: 3px;
-  background: #0d1116;
+  height: 8px;
+  border: 1px solid #fff;
+  background: transparent;
   overflow: hidden;
   margin-top: 6px;
 }
 
 .progress > div {
   height: 100%;
-  background: var(--accent);
-  transition: width 0.2s;
+  background: #fff;
 }
 
 .hint {
-  color: var(--text-dim);
+  color: var(--ink-mute);
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 1.6;
 }
 
 .goal-preview {
-  border: 1px solid var(--panel-border);
-  border-radius: 6px;
+  border: 1px solid var(--ink);
   display: block;
 }

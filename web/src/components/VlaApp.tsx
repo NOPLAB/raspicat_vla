@@ -276,19 +276,32 @@ export default function VlaApp() {
     });
   }, []);
 
+  // content-encoding 付き配信では total が取れない (modelStore 参照) ので、
+  // その間は取得済み MB を出す。丸め誤差で 100 を超えないようクランプ。
   const progressPct = initProgress?.fetch?.total
-    ? Math.round((initProgress.fetch.loaded / initProgress.fetch.total) * 100)
+    ? Math.min(
+        100,
+        Math.round(
+          (initProgress.fetch.loaded / initProgress.fetch.total) * 100,
+        ),
+      )
+    : null;
+  const progressMb = initProgress?.fetch
+    ? Math.round(initProgress.fetch.loaded / 1048576)
     : null;
 
   return (
     <main className="app">
       <header className="app-header">
-        <h1>Raspicat OmniVLA (web)</h1>
+        <h1>Raspicat OmniVLA — Web Console</h1>
         <span
           className={`badge ${engineReady ? (chunk?.fromModel ? 'ok' : 'warn') : ''}`}
         >
           {engineStatus}
         </span>
+        <p className="spec">
+          omnivla-edge / action chunk 8×4 / 0.1 m per unit / onnxruntime-web
+        </p>
       </header>
 
       <div className="content">
@@ -312,7 +325,11 @@ export default function VlaApp() {
               {initProgress && (
                 <div>
                   {initProgress.stage}
-                  {progressPct !== null ? ` ${progressPct}%` : ''}
+                  {progressPct !== null
+                    ? ` ${progressPct}%`
+                    : progressMb !== null
+                      ? ` ${progressMb}MB`
+                      : ''}
                   {initProgress.fetch?.fromCache ? ' (キャッシュ)' : ''}
                   {progressPct !== null && (
                     <div className="progress">

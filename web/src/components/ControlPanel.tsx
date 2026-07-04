@@ -43,13 +43,17 @@ export default function ControlPanel({
         <span className="row-label">映像:</span>
         <button
           type="button"
-          className={source === 'camera' ? 'primary' : ''}
+          className={source === 'camera' ? 'active' : ''}
           onClick={() => onSource('camera')}
         >
           カメラ
         </button>
-        <button type="button" onClick={() => fileRef.current?.click()}>
-          動画ファイル{source === 'file' ? ' ✓' : ''}
+        <button
+          type="button"
+          className={source === 'file' ? 'active' : ''}
+          onClick={() => fileRef.current?.click()}
+        >
+          動画ファイル
         </button>
         <input
           ref={fileRef}
@@ -63,7 +67,7 @@ export default function ControlPanel({
           }}
         />
         <button type="button" onClick={onToggleRunning}>
-          {running ? '⏸ 停止' : '▶ 再開'}
+          {running ? '停止' : '再開'}
         </button>
       </div>
 
@@ -92,11 +96,6 @@ export default function ControlPanel({
           </button>
         )}
       </div>
-      <p className="hint">
-        未接続の間はブラウザ内ログのみ (LoggingEdgeClient 相当)。https
-        配信ページからは ws:// が塞がれるため、localhost 配信で使うこと。
-      </p>
-
       <div className="row">
         <button type="button" onClick={onClearCache}>
           モデルキャッシュ削除 (~590MB)

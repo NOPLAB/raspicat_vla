@@ -55,7 +55,14 @@ export async function fetchModelCached(
   }
   if (!resp.ok || !resp.body) return null;
 
-  const total = Number(resp.headers.get('content-length')) || null;
+  // content-encoding (gzip 等) 付き応答では content-length は圧縮後サイズで、
+  // reader が返す展開後バイト数と食い違い進捗が 100% を超える (GitHub Pages が
+  // これに該当)。その場合は total 不明として扱う。
+  const encoding = resp.headers.get('content-encoding');
+  const total =
+    !encoding || encoding === 'identity'
+      ? Number(resp.headers.get('content-length')) || null
+      : null;
   const reader = resp.body.getReader();
   const chunks: Uint8Array[] = [];
   let loaded = 0;
