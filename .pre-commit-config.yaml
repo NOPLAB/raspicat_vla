@@ -1,0 +1,58 @@
+# コミット前に ROS2 (ament) 側の lint と同じルールをホストで回す。
+# ホストには ROS/ament が無い前提なので、PyPI の同等ツールを使う:
+#   autopep8   - Formatter(空白・空行・行長系を自動修正)
+#   flake8     - ament_flake8 と同じ設定 (.flake8) を読む
+#   pydocstyle - ament_pep257 と同じ ignore リスト (.pydocstyle を自動発見)
+# 導入: pip install pre-commit && pre-commit install
+# 対象は ROS ワークスペース側 (src/ は git 管理下 = raspicat_vla_* のみ) と
+# tools/ scripts/。app/ (Flutter) は各自のツールチェーンに任せる。
+# web/ (Next.js) は Biome を local hook で回す (要 `cd web && pnpm install`)。
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        files: ^(src/|tools/|scripts/|docker/|proto/)
+        exclude: (_pb2(_grpc)?|omnivla_edge_model)\.py$
+      - id: end-of-file-fixer
+        files: ^(src/|tools/|scripts/|docker/|proto/)
+        exclude: (_pb2(_grpc)?|omnivla_edge_model)\.py$
+      - id: check-xml
+        files: ^src/.*\.xml$
+      - id: check-yaml
+        files: ^(src/|docker/|\.github/).*\.ya?ml$
+      - id: check-merge-conflict
+
+  - repo: https://github.com/hhatto/autopep8
+    rev: v2.3.1
+    hooks:
+      - id: autopep8
+        args: [--in-place, --max-line-length=99]
+        files: ^(src/|tools/|scripts/).*\.py$
+        exclude: (_pb2(_grpc)?|omnivla_edge_model)\.py$
+
+  - repo: https://github.com/PyCQA/flake8
+    rev: 7.1.1
+    hooks:
+      - id: flake8
+        args: [--config=.flake8]
+        files: ^(src/|tools/|scripts/).*\.py$
+        exclude: (_pb2(_grpc)?|omnivla_edge_model)\.py$
+
+  - repo: https://github.com/PyCQA/pydocstyle
+    rev: 6.3.0
+    hooks:
+      - id: pydocstyle
+        files: ^(src/|tools/|scripts/).*\.py$
+        exclude: (_pb2(_grpc)?|omnivla_edge_model)\.py$
+
+  # web/ の Biome (lint + format)。autopep8 と同様に in-place 修正し、
+  # 修正が入るとコミットが止まるので再ステージしてやり直す。
+  - repo: local
+    hooks:
+      - id: biome-check
+        name: biome check (web/)
+        language: system
+        entry: bash -c 'cd web && pnpm exec biome check --write --no-errors-on-unmatched .'
+        files: ^web/
+        pass_filenames: false
