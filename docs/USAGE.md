@@ -9,8 +9,10 @@
 サブコマンド・フラグの正確な一覧は `scripts/vla.sh --help` を参照。本書は
 usage テキストに書けない「どの組み合わせをいつ使うか」を扱う。
 
-なお `app/` 以下のスマートフォン移植 (端末上で ONNX 推論して Pi に action を
-ストリームする構成) は本書の対象外 — `docs/mobile_port_spec.md` を参照。
+なお `app/` (スマートフォン) と `web/` (ブラウザ) の移植 — 端末上で ONNX 推論
+して Pi に action をストリームする構成 — の送信側は本書の対象外
+(`docs/design/mobile_port_spec.md` / `docs/design/web_port_spec.md` を参照)。
+Pi 側の受け口の起動だけは本書 §5.7 で扱う。
 
 ## 1. 概要
 
@@ -109,14 +111,16 @@ HuggingFace 上のリポジトリは公開設定なのでトークンは不要�
 
 ### 3.3 (任意) gRPC スタブの再生成
 
-`proto/raspicat_vla.proto` を編集したときだけ実行する:
+`proto/*.proto` を編集したとき、および `omnivla_edge_mobile` モード (§5.7) を
+初めて使うときに実行する:
 
 ```bash
 scripts/gen_proto.sh
 ```
 
-`src/raspicat_vla_proto/raspicat_vla_proto/raspicat_vla_pb2*.py` が再生成
-される。proto 変更とあわせてコミットすること。
+`src/raspicat_vla_proto/raspicat_vla_proto/{raspicat_vla,edge_action}_pb2*.py`
+が再生成される (gitignore 対象)。`protoc-gen-dart` が入っていれば
+`app/lib/src/grpc/gen/` の Dart スタブも再生成される — こちらはコミットする。
 
 ### 3.4 (任意) ネイティブ colcon ビルド
 
@@ -138,13 +142,15 @@ manifest 変更時は `vcs import src < raspicat.repos` を再実行する。Doc
 
 ### 4.1 MODEL (= リモートバックエンド)
 
-`vla.sh run MODEL …` の MODEL は `asyncvla | omnivla | omnivla_edge`:
+`vla.sh run MODEL …` の MODEL は
+`asyncvla | omnivla | omnivla_edge | omnivla_edge_mobile`:
 
 | MODEL          | 用途                                    | 重み                                   | resume step            | remote イメージ                 |
 |----------------|-----------------------------------------|----------------------------------------|------------------------|---------------------------------|
 | `asyncvla`     | AsyncVLA 推論 (Plan 2A)                 | `models/AsyncVLA_release/`             | `750000`               | `raspicat-vla-asyncvla`         |
 | `omnivla`      | OmniVLA-original 推論 (Path 1)          | `models/omnivla-original/`             | `120000`               | `raspicat-vla-omnivla`          |
 | `omnivla_edge` | OmniVLA-edge (Path 2 local / Path 3 remote) | `models/omnivla-edge/omnivla-edge.pth` | なし (素の state_dict) | `raspicat-vla-omnivla` (Path 3) |
+| `omnivla_edge_mobile` | モバイル移植: スマホが推論、このホストは受信のみ (§5.7) | 不要 (モデルはスマホ側) | — | — (エッジ系イメージのみ) |
 
 resume step とウェイトパスは `scripts/vla.sh` の `RESUME_STEP` /
 `WEIGHTS_DIR` 連想配列に固定で書かれている。変更する場合はそこを書き換える。
@@ -158,9 +164,17 @@ resume step とウェイトパスは `scripts/vla.sh` の `RESUME_STEP` /
 |--------------|---------------------------------|-------------------------------|--------------------------------------------------------------------------|
 | `remote`     | GPU ワークステーション / Jetson | `asyncvla`/`omnivla`          | gRPC サーバ (`raspicat_vla_remote.server_main`)。`--cpu`/`--gpu` 必須    |
 | `edge`       | ロボット (Pi)                   | `real`                        | `edge_only.launch.py` (エッジノード + follower)。`--host` 必須           |
-| `cmd_vel`    | 単一ホスト                      | `asyncvla`/`omnivla` + `real` | **1 コマンドで 2 コンテナ**: 127.0.0.1 bind のリモート + エッジ。follower は非モータトピック `/cmd_vel_vla` に publish (`cmd_vel.launch.py`)。`--cpu`/`--gpu` 必須 |
+| `cmd_vel`    | 単一ホスト                      | `asyncvla`/`omnivla` + `real` | **1 コマンドで 2 コンテナ**: 127.0.0.1 bind のリモート + エッジ。follower は非モータトピック `/cmd_vel_vla` に publish (`edge_only.launch.py cmd_vel_topic:=/cmd_vel_vla`)。`--cpu`/`--gpu` 必須 |
 | `sim`        | X11 の動くホスト                | `sim`                         | `sim.launch.py` (Gazebo + エッジ + follower)。`--host` 必須              |
 | `edge-local` | ロボット (CUDA 必須)            | `real`                        | `omnivla_edge_local.launch.py` — Path 2、クラウドなしのスタンドアロン。`omnivla_edge` 専用 |
+
+`omnivla_edge_mobile` は例外的に `--mode cmd_vel` のみ対応で、内容も上表と
+異なる (VLA サーバなし・1 コンテナ、§5.7)。
+
+コンテナトポロジの正準定義は `docker/compose.yaml` — モード = compose
+profile で、`vla.sh` は profile の選択と `VLA_*` 変数の設定、構造差分
+overlay (`docker/compose.{gpu,jetson,camera-*,sim-display}.yaml`) の追加
+だけを行う。「どのモードで何が立つか」はこのファイルを読めば分かる。
 
 補足:
 
@@ -195,24 +209,24 @@ scripts/control.sh goal pose 2 0                   # ゴール投入 (§6 参照
 scripts/bash.sh ros2 topic echo /cmd_vel_vla       # follower の出力を確認
 ```
 
-リモートは 127.0.0.1 に bind したデタッチコンテナで、`Ctrl+C` でエッジ側を
-落とすと一緒に片付く。実カメラで回すなら `--camera edge` などを追加。
+リモート (127.0.0.1 bind) とエッジは compose profile `cmd_vel` の 2 サービス
+として起動し、両方のログがフォアグラウンドに流れる。`Ctrl+C` (または片方の
+終了) で両方まとめて片付く。実カメラで回すなら `--camera edge` などを追加。
 モータの実駆動まで確認するときだけ `--drive-motors` を付ける。
 
 補足 — モデルロードなしの純粋な `dummy` サーバを手で立てたい場合は、
-`vla.sh` を迂回して test イメージ内で server モジュールを直接呼ぶ:
+compose を直接使ってサーバだけを test イメージで起動する
+(`VLA_BACKEND` はじめ全変数にデフォルトがあり、`dummy` がそのデフォルト):
 
 ```bash
-docker run --rm --network host \
-    -v "$PWD:/workspace" raspicat-vla-test bash -lc \
-    'cd /workspace && \
-     export PYTHONPATH=/workspace/src/raspicat_vla_proto:/workspace/src/raspicat_vla_remote && \
-     python3 -m raspicat_vla_remote.server_main --backend dummy --port 50051'
+VLA_REMOTE_IMAGE=raspicat-vla-test \
+    docker compose -f docker/compose.yaml --profile remote up
 ```
 
 `raspicat_vla_proto` と `raspicat_vla_remote` は ament_python レイアウト
 (`setup.cfg` に `script_dir`) なので `pip install -e` は最新の setuptools で
-失敗する。`vla.sh` が remote 起動時に行うのも同じ PYTHONPATH 方式。
+失敗する。compose の `remote` サービスが PYTHONPATH 方式で起動するのは
+このため。
 
 ### 5.2 リモート ワークステーション + Pi 実機エッジ
 
@@ -311,6 +325,38 @@ scripts/vla.sh run omnivla --mode edge   --host 127.0.0.1   # または --mode s
 
 実用テストは GPU 推奨。CPU は「パイプラインが繋がっているか」の検証用途に
 限る。
+
+### 5.7 モバイル/Web 移植の Pi 側受け口 (`omnivla_edge_mobile`)
+
+スマホ (`app/`) やブラウザ (`web/`) が **カメラ取得と推論の両方** を担い、
+このホストは action chunk を受けて追従するだけの構成。VLA サーバもカメラも
+立てない。
+
+**gRPC 版 (スマホアプリ用, `proto/edge_action.proto`)**:
+
+```bash
+scripts/gen_proto.sh                                    # edge_action スタブ生成 (初回のみ)
+scripts/vla.sh run omnivla_edge_mobile --mode cmd_vel   # 受信 + follower の 1 コンテナ
+```
+
+`EdgeActionService` が `0.0.0.0:50061` (変更は `--host BIND[:PORT]` か
+`EDGE_ACTION_PORT`) で待ち受けるので、アプリの AppBar の Wi-Fi アイコンから
+このホストの IP を指定して接続する。follower の出力は他モードと同じく既定で
+非モーターの `/cmd_vel_vla` — 実走行時のみ `--drive-motors`。chunk が
+`chunk_max_age_sec` (1 秒) 途切れると空 Path で safe-stop する。
+
+```bash
+scripts/bash.sh ros2 topic echo /cmd_vel_vla   # 追従出力の確認
+```
+
+**WebSocket 版 (web/ 用)** は `vla.sh` 未対応で、launch を直接起動する
+(コンテナ内 or ネイティブ colcon 環境):
+
+```bash
+ros2 launch raspicat_vla_bringup phone_ws.launch.py    # port:=8765
+```
+
+プロトコルや web 側の使い方は `docs/design/web_port_spec.md` を参照。
 
 ## 6. 稼働中スタックの操作
 
@@ -430,6 +476,7 @@ PD (`waypoint_pd.py`) — path の `waypoint_select` 番目 (デフォルト 4) 
 | 変数                      | 効果                                                                    |
 |---------------------------|--------------------------------------------------------------------------|
 | `GRPC_PORT`               | `--host` のデフォルトポート (省略時は `50051`)                           |
+| `EDGE_ACTION_PORT`        | スマホ→Pi `EdgeActionService` の既定ポート (省略時は `50061`、§5.7)      |
 | `HF_CACHE_DIR`            | コンテナにマウントする HF キャッシュ (デフォルト `~/.cache/huggingface`) |
 | `ROS_DOMAIN_ID`           | 全 ROS コンテナへ forward — DDS ディスカバリの隔離用                    |
 | `RASPICAT_VLA_JETSON`     | `1` = Jetson イメージ + nvidia runtime を強制、`0` = x86 を強制         |
@@ -549,9 +596,12 @@ raspimouse はモータ電源で cmd_vel をゲートする。`scripts/control.s
 (`RASPICAT_VLA_UDP_ONLY=0` で無効化した場合は再発する)。
 
 **Gazebo が `Error getting username: no matching password record` を出す**
-`vla.sh` はコンテナ内に UID 用の `passwd` エントリを合成している。`vla.sh`
-を経由せず直接 `docker run` で `sim` イメージを起動する場合は同等の処理を
-自分で行う必要がある。
+`vla.sh` はコンテナ内に UID 用の `passwd` エントリを合成し、
+`VLA_SIM_PASSWD`/`VLA_SIM_GROUP` 経由で `sim` サービスにマウントしている。
+`vla.sh` を経由せず compose や `docker run` で `sim` イメージを直接起動する
+場合は同等の処理を自分で行う必要がある (compose 直接利用時のデフォルトは
+ホストの `/etc/passwd` をそのままマウント — ユーザ名解決は動くが HOME は
+合成版と異なる)。
 
 **`Service /spawn_entity unavailable. Was Gazebo started with GazeboRosFactory?`**
 rt-net の `spawn_raspicat.launch.py` が `spawn_entity.py` を built-in 30 秒
@@ -563,8 +613,8 @@ rt-net の `spawn_raspicat.launch.py` が `spawn_entity.py` を built-in 30 秒
 `ros2 run gazebo_ros spawn_entity.py -entity raspicat -topic /robot_description -x 0 -y 0 -z 0 --timeout 120`。
 
 **コンテナ内 colcon ビルドが毎回走る**
-`vla.sh` はワークスペースに `install/setup.bash` が存在すれば colcon ステップ
-を skip する。ソース変更後に強制再ビルドしたいときは
+`docker/ros_entrypoint.sh` は `install/` に全 `raspicat_vla_*` パッケージが
+揃っていれば colcon ステップを skip する。ソース変更後に強制再ビルドしたいときは
 `RASPICAT_VLA_REBUILD=1`。逆に再ビルドが走るべきときに走らない場合は
 ホスト側の `install/` (bind mount されている) を削除する。
 
@@ -582,13 +632,18 @@ HF トークンをクリア (`huggingface-cli logout`) してリトライ。期�
 ## 11. 参考
 
 * `scripts/vla.sh --help` — サブコマンド・フラグの正準リファレンス
+* `docker/compose.yaml` — 全モードのコンテナトポロジ (モード = profile) と
+  構造差分 overlay (`docker/compose.*.yaml`)
 * `scripts/control.sh` / `scripts/bash.sh` — 稼働中スタックの操作 (§6)
-* `proto/raspicat_vla.proto` — gRPC インタフェース定義
+* `proto/raspicat_vla.proto` — gRPC インタフェース定義 (edge↔remote)
+* `proto/edge_action.proto` — スマホ/Web → Pi の action chunk インタフェース (§5.7)
 * `src/raspicat_vla_edge/launch/edge_only.launch.py` — エッジの launch 引数
-* `src/raspicat_vla_bringup/launch/` — モード別 launch 構成 (`cmd_vel` /
-  `sim` / `omnivla_edge_local` / `omnivla_edge_remote` ほか)
+* `src/raspicat_vla_bringup/launch/` — モード別 launch 構成 (`local_stack`
+  (単一ホスト all-in-one、`backend:=` で選択) / `sim` / `omnivla_edge_local`
+  / `mobile_cmd_vel` ほか)
 * `src/raspicat_vla_edge/config/edge_params.yaml` — エッジパラメータ全件
 * `src/raspicat_vla_remote/raspicat_vla_remote/server_main.py` — リモート CLI
 * `scripts/download_*_checkpoints.sh` — HF モデル取得ヘルパ
 * `raspicat.repos` — rt-net ソースバージョンのピン (vcstool マニフェスト)
-* `docs/mobile_port_spec.md` — スマートフォン移植 (`app/`) の仕様
+* `docs/design/mobile_port_spec.md` — スマートフォン移植 (`app/`) の仕様
+* `docs/design/web_port_spec.md` — ブラウザ移植 (`web/`) の仕様

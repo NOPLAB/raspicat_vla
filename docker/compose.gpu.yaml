@@ -1,0 +1,19 @@
+# docker/compose.gpu.yaml — x86 CUDA overlay (nvidia-container-toolkit's
+# `--gpus all`). Jetson/L4T exposes the iGPU through the nvidia container
+# *runtime* instead — vla.sh appends compose.jetson.yaml there. Applied when a
+# mode wants the GPU: `--gpu`, edge-local, or sim with the nvidia runtime
+# present.
+services:
+  remote:
+    gpus: all
+  edge-local:
+    gpus: all
+  # Gazebo renders the camera sensor (and gzclient) via GL. `gpus: all` alone
+  # injects compute+utility only — CUDA but no GL — so ask for every driver
+  # capability; that injects libGLX_nvidia and keeps gzserver fast enough to
+  # hit the spawn_entity service window (software GL misses it).
+  sim:
+    gpus: all
+    environment:
+      NVIDIA_DRIVER_CAPABILITIES: all
+      NVIDIA_VISIBLE_DEVICES: all

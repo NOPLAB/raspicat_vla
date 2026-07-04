@@ -1,0 +1,14 @@
+# docker/compose.camera-v4l2.yaml — pass a v4l2 webcam through to the edge
+# node (which grabs it in-process; no driver node, no DDS image hop).
+#
+# The device node appears inside the container as mode 660 root:video, and the
+# container user is unprivileged (host-user mapped), so it also needs the
+# device's owning group or open() fails EACCES. vla.sh exports the gid it
+# stat'ed from the host device; 44 is the conventional `video` gid fallback.
+services:
+  edge: &v4l2-camera
+    devices:
+      - ${VLA_CAMERA_DEVICE:-/dev/video0}:${VLA_CAMERA_DEVICE:-/dev/video0}
+    group_add:
+      - "${VLA_CAMERA_GID:-44}"
+  edge-local: *v4l2-camera

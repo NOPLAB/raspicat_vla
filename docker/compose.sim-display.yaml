@@ -1,0 +1,9 @@
+# docker/compose.sim-display.yaml — forward the host X11 display so gzclient
+# renders on the host. vla.sh appends this only when $DISPLAY is set (headless
+# sim runs fine without it; the camera sensor renders server-side).
+services:
+  sim:
+    environment:
+      DISPLAY: ${DISPLAY:-}
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro

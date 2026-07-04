@@ -82,8 +82,10 @@ if [[ ${1:-} == logs ]]; then
         esac
     done
 
-    # cmd_vel/detached-remote name the server container raspicat-vla-cmdvel-server-<pid>.
-    server_cid="$(docker ps -q --filter name=raspicat-vla-cmdvel-server | head -1)"
+    # compose names the server container raspicat-vla-remote-<n> (service
+    # "remote" in docker/compose.yaml); raspicat-vla-cmdvel-server-<pid> is the
+    # pre-compose name, kept for stacks started by an older vla.sh.
+    server_cid="$(docker ps -q --filter name=raspicat-vla-remote --filter name=raspicat-vla-cmdvel-server | head -1)"
     edge_cid="$(find_edge_cid)"
 
     case "$target" in

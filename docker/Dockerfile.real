@@ -84,6 +84,9 @@ RUN pip3 install --no-cache-dir 'setuptools==59.6.0' wheel
 RUN pip3 install --no-cache-dir 'ftfy' 'regex' 'tqdm' \
     && pip3 install --no-cache-dir --no-deps --no-build-isolation 'git+https://github.com/openai/CLIP.git'
 
+# edge_action_ws_node (Web/スマホ -> Pi の action chunk WS ブリッジ)。
+RUN pip3 install --no-cache-dir 'websockets>=10'
+
 # --------------------------------------------- rt-net raspicat real workspace
 # Build the rt-net packages once at image build time so the robot launch
 # graph is ready out-of-the-box. Sources are fetched from GitHub via vcstool

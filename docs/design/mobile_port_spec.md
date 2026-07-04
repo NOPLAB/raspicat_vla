@@ -1,7 +1,10 @@
-# OmniVLA スマートフォン移植 仕様書 (v0.2)
+# OmniVLA スマートフォン移植 仕様書 (v0.3)
 
-> 実装: `app/` (Flutter)。骨格実装済み。未配置なのは ONNX モデルと CLIP 語彙のみ
-> (下記 Phase 1/2)。それまではダミー軌道で end-to-end 動作する。
+> 実装: `app/` (Flutter) + Pi 側受け口 `raspicat_vla_edge/edge_action_grpc_node.py`
+> (`vla.sh run omnivla_edge_mobile --mode cmd_vel`)。Phase 1–4 実装済み、残るは
+> Phase 5 (実機統合) — §6 参照。ONNX モデル・CLIP 語彙が未配置の環境でも
+> ダミー軌道で end-to-end 動作する。ブラウザ版の姉妹実装は `web_port_spec.md`
+> (同じデータ契約、トランスポートは WebSocket)。
 
 ## 0. 目的とスコープ
 
@@ -83,7 +86,7 @@ CUDA 依存は `forward` 内の `tensor.get_device()` 1 箇所のみ。ONNX expo
 
 ### 3.3 モデル出力
 - `action_pred`: `(1, 8, 4)` = 各 waypoint `(x, y, cos θ, sin θ)`、**単位は waypoint-spacing (0.1 m/unit)**。
-- スマホ側で x,y に 0.1 を掛けてメートル化してから Pi へ送るか、生 chunk のまま送って Pi 側でスケールするかは §4 で定義。
+- スマホ側で x,y に 0.1 を掛けてメートル化してから送る (`scaled_to_m=true`, §5-D で決着)。Pi 側は `scaled_to_m=false` (生 spacing 単位) も受けられる。
 - `dist_pred`, `mask` は v1 では未使用（送らない）。
 
 ### 3.4 CLIP テキスト経路
@@ -92,37 +95,23 @@ CUDA 依存は `forward` 内の `tensor.get_device()` 1 箇所のみ。ONNX expo
 
 ---
 
-## 4. スマホ↔Pi インターフェース（新規 gRPC）
+## 4. スマホ↔Pi インターフェース（gRPC — 実装済み）
 
-既存 `proto/raspicat_vla.proto` に軽量サービスを追加する案:
+**正定義は `proto/edge_action.proto`**（既存 `raspicat_vla.proto` とは独立の
+サービス）。`EdgeActionService.StreamActions(stream ActionChunk) returns
+(stream ControlAck)` の双方向 stream で、スマホ = client / Pi = server。
+フィールドの意味は proto のコメントが正。v0.2 草案からの差分は
+`from_model` (bool, field 8) の追加のみ — ONNX 未配置のダミー軌道を送って
+いることを Pi 側 ack (`status: "ok-dummy"`) で可視化するためのフラグ。
 
-```protobuf
-service EdgeActionService {
-  // スマホ(client) → Pi(server): 推論結果の action chunk を stream 送信
-  rpc StreamActions(stream ActionChunk) returns (stream ControlAck);
-}
+### Pi 側の責務（`edge_action_grpc_node.py` が実装）
+- gRPC server として action chunk を受信 → `trajectory_to_path` で
+  `nav_msgs/Path` 化 → 既存 `path_follower_node` が追従 → `/cmd_vel(_vla)`。
+- **ウォッチドッグ**: `chunk_max_age_sec` (既定 1.0s) 以内に新しい chunk が
+  来なければ空 Path を発行してモーター停止（既存 embedding_max_age の思想を踏襲）。
+- ゴール切替(`goal_id`変化)はログに記録（追従は常に最新 Path 基準）。
 
-message ActionChunk {
-  uint64 frame_id       = 1;   // 連番
-  uint64 capture_time_ns= 2;   // カメラ取得時刻
-  uint32 num_tokens     = 3;   // 8
-  uint32 embed_dim      = 4;   // 4 (x, y, cos, sin)
-  bytes  values_fp16    = 5;   // (num_tokens*embed_dim) fp16。既存 conversions を再利用
-  bool   scaled_to_m    = 6;   // x,y が既にメートルか（false なら Pi 側で ×0.1）
-  string goal_id        = 7;   // ゴール識別（切替検知・安全用）
-}
-
-message ControlAck {
-  uint64 frame_id       = 1;   // echo
-  bool   following      = 2;   // Pi が追従中か
-  string status         = 3;   // "ok" | "estopped" | "stale" ...
-}
-```
-
-### Pi 側の責務
-- gRPC server として action chunk を受信 → 既存 `OmniVLAEdgeAdapter` 相当で `nav_msgs/Path` 化 → pure-pursuit → `/cmd_vel`。
-- **ウォッチドッグ必須**: 一定時間(例 `chunk_max_age_sec`)新しい chunk が来なければ **モーター停止**（既存 embedding_max_age の思想を踏襲）。
-- ゴール切替(`goal_id`変化)時は追従状態をリセット。
+実装メモは §6「Phase 4 実装メモ」を参照。
 
 ---
 
@@ -140,8 +129,12 @@ message ControlAck {
 - **B. アプリFW**: Flutter に確定。
 - **C. pose 座標系**: スマホ UI で直接指定に確定。
 - **E. 搭載形態**: raspicat に固定搭載に確定。
-- **D. メートル化の責務**（残）: スマホ側 ×0.1 か Pi 側か。proto `scaled_to_m` で両対応にしてあるので実機統合時 (Phase 4/5) に決定。暫定はスマホ側でメートル化 (`scaled_to_m=true`) を推奨。
-- **F. 正解一致の検証手段**（残・Phase 1/2 で必要）: GPU 上の `run_omnivla_edge.py` / `infer_chunk` を参照に、ONNX 出力とアプリ前処理をゴールデン突き合わせ。要 GPU 環境の手当て。
+- **D. メートル化の責務**: 決着 — アプリ (`GrpcEdgeClient`) はメートル化して送る
+  (`scaled_to_m=true`)。web 版は生 spacing 単位 (`scaled_to_m=false`) で送り
+  Pi 側が ×0.1 する。Pi 側 `decode_action_chunk` は両対応のまま維持。
+- **F. 正解一致の検証手段**: ONNX 側は解決 — `app/scripts/export_*.py` が export
+  時に onnxruntime と PyTorch の出力を突き合わせる (Phase 1 完了)。アプリ/web の
+  前処理・CLIP BPE の実フレームでの完全ゴールデン照合は Phase 5 の残タスク。
 
 ---
 
@@ -150,9 +143,9 @@ message ControlAck {
 | Phase | 内容 | 状態 |
 |-------|------|------|
 | **Phase 3 — アプリ骨組み** | カメラ取得→前処理→(ONNX or ダミー)推論→chunk 可視化→送信。ゴール UI 3 モード。 | ✅ **実装済** (`app/`) |
-| **Phase 1 — モデル変換** | `omnivla-edge.pth` + CLIP を ONNX 化。`assets/models/*.onnx` に配置。PyTorch 参照と出力一致を検証。 | ⬜ 未着手 (要 GPU) |
-| **Phase 2 — 前処理ゴールデン** | Dart の前処理/リングバッファ/CLIP BPE を PyTorch `infer_chunk` と数値突き合わせ。CLIP 語彙 `assets/clip/` 配置。 | 🟡 実装済/未検証 (単体テスト有) |
-| **Phase 4 — Pi 側 server** | `EdgeActionService` server + ウォッチドッグ + pure-pursuit + sim 走行。アプリ側 `GrpcEdgeClient` を差し込み。 | ⬜ 未着手 |
+| **Phase 1 — モデル変換** | `omnivla-edge.pth` + CLIP を ONNX 化。`assets/models/*.onnx` に配置。PyTorch 参照と出力一致を検証。 | ✅ **実装済** (`app/scripts/export_{omnivla_edge,clip_text}_onnx.py` — export 時に PyTorch と出力照合。`quantize_onnx.py` も有) |
+| **Phase 2 — 前処理ゴールデン** | Dart の前処理/リングバッファ/CLIP BPE を PyTorch `infer_chunk` と数値突き合わせ。CLIP 語彙 `assets/clip/` 配置。 | 🟡 語彙配置済・単体テスト有。実フレームでの完全ゴールデンは Phase 5 と合流 |
+| **Phase 4 — Pi 側 server** | `EdgeActionService` server + ウォッチドッグ + pure-pursuit + sim 走行。アプリ側 `GrpcEdgeClient` を差し込み。 | ✅ **実装済** (`edge_action_grpc_node.py` + `GrpcEdgeClient`; `vla.sh run omnivla_edge_mobile --mode cmd_vel` で起動、e2e 疎通確認済) |
 | **Phase 5 — 実機統合** | スマホ↔Pi 無線、実機 raspicat で end-to-end、FOV/性能/安全チューニング。 | ⬜ 未着手 |
 
 ### Phase 3 実装マップ (`app/lib/src/`)
@@ -169,8 +162,24 @@ message ControlAck {
 | `grpc/edge_action_client.dart` | Pi 送信 (coalesce+pace) | §4 |
 | `ui/*` | カメラプレビュー・ゴール入力・パス可視化 | — |
 
+### Phase 4 実装メモ
+
+- stub 生成は `scripts/gen_proto.sh` に統合 (Python は gitignore、Dart は
+  `app/lib/src/grpc/gen/` にコミット。要 `dart pub global activate protoc_plugin`)。
+- Pi 側 server は `raspicat_vla_edge/edge_action_grpc_node.py`。Web 版ブリッジ
+  `edge_action_ws_node.py` の gRPC 双子で、同じ設計を守る
+  (受信スレッドはロック付きスロットへ置くだけ / publish は ROS タイマ /
+  `chunk_max_age_sec` 超過で空 Path safe-stop)。既定ポート 50061
+  (`vla.sh` の `EDGE_ACTION_PORT`)。
+- アプリ側は `GrpcEdgeClient` (AppBar の Wi-Fi アイコンから Pi の IP[:PORT] を
+  指定して接続)。x,y はスマホ側でメートル化して送る (`scaled_to_m=true`,
+  未決事項 D の推奨解を採用)。切断時はストリームを張り直すだけで送信ループは
+  止めない。
+- 起動: `vla.sh run omnivla_edge_mobile --mode cmd_vel`
+  (EdgeActionService + path_follower、既定は `/cmd_vel_vla` = 非モーター。
+  `--drive-motors` で実モーター)。
+
 ### 次アクション
-1. **Phase 1**: GPU 環境で ONNX export スクリプトを作る (`app/scripts/export_omnivla_edge_onnx.py` 等)。`get_device()` 依存の除去を含む。
-2. **Phase 2**: CLIP 語彙を `app/assets/clip/` に配置し、`ClipTokenizer` を Python 参照とゴールデン一致。
-3. **Phase 4**: `edge_action.proto` から Dart/Python stub 生成 → Pi server と `GrpcEdgeClient` 実装。
-```
+1. **Phase 5**: 実機 raspicat + スマホ Wi-Fi で end-to-end (`--drive-motors`)、
+   FOV/性能/安全チューニング。前処理・CLIP BPE の実フレームゴールデン照合 (§5-F 残)
+   もここで行う。

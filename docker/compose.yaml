@@ -1,0 +1,133 @@
+# docker/compose.yaml — the container topology of every `vla.sh run` mode.
+#
+# One service per container; a vla.sh mode = a compose profile:
+#
+#   --mode remote      -> profile "remote"     = remote            (cloud gRPC server)
+#   --mode edge        -> profile "edge"       = edge              (robot-side ROS stack)
+#   --mode cmd_vel     -> profile "cmd_vel"    = remote + edge     (both here, loopback,
+#                                                follower on a non-motor topic)
+#   omnivla_edge_mobile-> profile "mobile"     = edge              (phone streams action
+#                                                chunks; mobile_cmd_vel.launch.py)
+#   --mode sim         -> profile "sim"        = sim               (Gazebo + edge, one container)
+#   --mode edge-local  -> profile "edge-local" = edge-local        (standalone on-robot policy)
+#   vla.sh test        -> profile "test"       = test              (one-shot pytest via `run`)
+#
+# scripts/vla.sh is a thin driver: it picks the profile, exports the VLA_*
+# variables below, appends the structural overlays when they apply
+# (compose.gpu.yaml / compose.jetson.yaml / compose.camera-v4l2.yaml /
+# compose.camera-realsense.yaml / compose.sim-display.yaml), and runs
+# `docker compose up`. Every VLA_* variable has a usable default, so e.g.
+#   docker compose -f docker/compose.yaml --profile cmd_vel up
+# brings up a dummy-backend preview stack without vla.sh at all.
+#
+# All services share the host network: the edge<->remote link is gRPC on
+# localhost/LAN, and ROS2 DDS discovery needs raw multicast.
+
+name: raspicat-vla
+
+# Shared shape of every workspace-building ROS container (edge / sim /
+# edge-local / test). They run as the host user so files written under the
+# /workspace bind-mount stay host-owned, and boot through ros_entrypoint.sh
+# (source ROS + overlay, idempotent colcon build, exec the command).
+x-ros-workspace: &ros-workspace
+  network_mode: host
+  user: "${VLA_UID_GID:-1000:1000}"
+  entrypoint: ["bash", "/workspace/docker/ros_entrypoint.sh"]
+  volumes:
+    - ${VLA_REPO_ROOT:-..}:/workspace
+    - ${VLA_HF_CACHE:-~/.cache/huggingface}:/tmp/.cache/huggingface
+
+x-ros-env: &ros-env
+  HOME: /tmp  # the mapped host user has no home dir inside the image
+  ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+  RASPICAT_VLA_REBUILD: ${RASPICAT_VLA_REBUILD:-}
+
+services:
+  # Cloud-side VLA gRPC server (VLAService.StreamInfer). Runs as root in the
+  # model image (raspicat-vla-{asyncvla,omnivla}[-jetson]) — no ROS inside.
+  # The raspicat_vla_proto/remote packages are ROS2 ament_python layouts that
+  # `pip install -e` chokes on, hence the from-source PYTHONPATH.
+  remote:
+    profiles: [remote, cmd_vel]
+    image: ${VLA_REMOTE_IMAGE:-raspicat-vla-omnivla}
+    network_mode: host
+    working_dir: /workspace
+    volumes:
+      - ${VLA_REPO_ROOT:-..}:/workspace
+      - ${VLA_HF_CACHE:-~/.cache/huggingface}:/root/.cache/huggingface
+    environment:
+      PYTHONPATH: /workspace/src/raspicat_vla_proto:/workspace/src/raspicat_vla_remote:/workspace/src/raspicat_vla_core
+    command: >
+      python3 -m raspicat_vla_remote.server_main
+      --backend ${VLA_BACKEND:-dummy}
+      --host ${VLA_BIND_HOST:-0.0.0.0}
+      --port ${VLA_GRPC_PORT:-50051}
+      --vla-path ${VLA_WEIGHTS:-/workspace/models/omnivla-original}
+      --resume-step ${VLA_RESUME_STEP:-120000}
+      --device ${VLA_DEVICE:-cpu}
+
+  # Robot-side stack: VLA edge lifecycle node + path follower (+ optional
+  # camera), i.e. `ros2 launch <VLA_EDGE_LAUNCH>`. vla.sh falls back to the
+  # test image (VLA_EDGE_IMAGE/VLA_EDGE_OVERLAY) when raspicat-vla-real isn't
+  # built. The "mobile" profile runs the same container with
+  # mobile_cmd_vel.launch.py — no VLA server anywhere; the phone infers.
+  edge:
+    <<: *ros-workspace
+    profiles: [edge, cmd_vel, mobile]
+    image: ${VLA_EDGE_IMAGE:-raspicat-vla-real}
+    environment:
+      <<: *ros-env
+      VLA_WS_OVERLAY: ${VLA_EDGE_OVERLAY:-/opt/real_ws/install/setup.bash}
+    command: ros2 launch ${VLA_EDGE_LAUNCH:-raspicat_vla_edge edge_only.launch.py with_follower:=true cmd_vel_topic:=/cmd_vel_vla}
+
+  # Gazebo + edge stack in one container (Plan 3). ROS_LOCALHOST_ONLY confines
+  # DDS discovery to loopback: every ROS node of a sim run lives in this one
+  # container, and LAN-wide FastDDS discovery storms starve gzserver's
+  # /spawn_entity service so the robot never appears.
+  sim:
+    <<: *ros-workspace
+    profiles: [sim]
+    image: raspicat-vla-sim
+    environment:
+      <<: *ros-env
+      VLA_WS_OVERLAY: /opt/sim_ws/install/setup.bash
+      ROS_LOCALHOST_ONLY: "1"
+    volumes:
+      - ${VLA_REPO_ROOT:-..}:/workspace
+      - ${VLA_HF_CACHE:-~/.cache/huggingface}:/tmp/.cache/huggingface
+      # Synthesized /etc/passwd+group with an entry for the mapped host UID
+      # (HOME=/tmp) so gzclient stops spamming "Error getting username: no
+      # matching password record". vla.sh points these at a tempdir copy; the
+      # bare-compose default (the host's own files) at least keeps username
+      # lookups working.
+      - ${VLA_SIM_PASSWD:-/etc/passwd}:/etc/passwd:ro
+      - ${VLA_SIM_GROUP:-/etc/group}:/etc/group:ro
+    command: ros2 launch ${VLA_SIM_LAUNCH:-raspicat_vla_bringup sim.launch.py}
+
+  # Plan 2B Path 2: the whole OmniVLA-edge policy runs ON the robot —
+  # no cloud, no gRPC. Needs CUDA (pair with compose.gpu.yaml / compose.jetson.yaml)
+  # and models/omnivla-edge/omnivla-edge.pth.
+  edge-local:
+    <<: *ros-workspace
+    profiles: [edge-local]
+    image: raspicat-vla-real
+    environment:
+      <<: *ros-env
+      VLA_WS_OVERLAY: /opt/real_ws/install/setup.bash
+    volumes:
+      - ${VLA_REPO_ROOT:-..}:/workspace
+      - ${VLA_HF_CACHE:-~/.cache/huggingface}:/tmp/.cache/huggingface
+      - ${VLA_CLIP_CACHE:-~/.cache/clip}:/tmp/.cache/clip
+    command: ros2 launch ${VLA_EDGE_LOCAL_LAUNCH:-raspicat_vla_bringup omnivla_edge_local.launch.py device:=cuda:0}
+
+  # One-shot pytest container (`vla.sh test` -> `docker compose run --rm test
+  # python3 -m pytest ...`). CPU only. Plain bridge networking: the suite spins
+  # up rclpy nodes and host networking would expose their DDS discovery to the
+  # LAN for no benefit.
+  test:
+    <<: *ros-workspace
+    profiles: [test]
+    image: raspicat-vla-test
+    network_mode: bridge
+    environment: *ros-env
+    command: python3 -m pytest

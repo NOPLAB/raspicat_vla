@@ -37,4 +37,7 @@ RUN pip3 install --no-cache-dir \
         --index-url https://download.pytorch.org/whl/cpu \
         'torch==2.2.0' 'torchvision==0.17.0'
 
+# edge_action_ws_node (Web/スマホ -> Pi の action chunk WS ブリッジ)。
+RUN pip3 install --no-cache-dir 'websockets>=10'
+
 WORKDIR /workspace

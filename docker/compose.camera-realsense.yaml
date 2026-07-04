@@ -1,0 +1,18 @@
+# docker/compose.camera-realsense.yaml — Intel RealSense passthrough (the
+# realsense2_camera node runs inside the edge container). The device
+# re-enumerates on reset and spans several /dev nodes, so bind-mount all of
+# /dev and run privileged (the standard librealsense-in-Docker recipe) rather
+# than pinning one device node.
+#
+# privileged does NOT grant the unprivileged container user a DAC override on
+# /dev/video* (mode 660 root:video), so the video group is still required —
+# same EACCES story as the v4l2 overlay. Without it librealsense reports
+# "No RealSense devices were found!".
+services:
+  edge: &realsense-camera
+    privileged: true
+    volumes:
+      - /dev:/dev
+    group_add:
+      - "${VLA_CAMERA_GID:-44}"
+  edge-local: *realsense-camera
