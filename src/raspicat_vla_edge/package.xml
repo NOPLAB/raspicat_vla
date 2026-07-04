@@ -28,6 +28,8 @@
   <exec_depend>raspicat_vla_proto</exec_depend>
   <!-- adapters/omnivla_edge_local.py wraps the shared OmniVLAEdgeEngine. -->
   <exec_depend>raspicat_vla_core</exec_depend>
+  <!-- edge_action_ws_node.py (Web/スマホ -> Pi の action chunk WS ブリッジ)。 -->
+  <exec_depend>python3-websockets</exec_depend>
 
   <test_depend>ament_flake8</test_depend>
   <test_depend>ament_pep257</test_depend>

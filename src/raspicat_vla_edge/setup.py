@@ -32,6 +32,8 @@ setup(
         'console_scripts': [
             'vla_edge_node = raspicat_vla_edge.edge_node:main',
             'path_follower_node = raspicat_vla_edge.path_follower_node:main',
+            'edge_action_ws_server = raspicat_vla_edge.edge_action_ws_node:main',
+            'edge_action_grpc_server = raspicat_vla_edge.edge_action_grpc_node:main',
         ],
     },
 )
