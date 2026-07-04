@@ -2,7 +2,8 @@
  * onnxruntime-web ラッパー: OmniVLA-edge 本体 + CLIP text encoder。
  * `app/lib/src/inference/ort_runner.dart` の移植。
  *
- * EP は WebGPU を優先し、使えなければ wasm へフォールバックする。wasm 時は
+ * EP は WebGPU (ハードウェア GPU がある場合のみ) を優先し、無ければ wasm へ
+ * フォールバックする。wasm 時は
  * `ort.env.wasm.proxy = true` で worker 実行にし UI スレッドを塞がない
  * (Flutter 版の runAsync に相当)。ランタイムの .wasm/.mjs は postinstall が
  * public/ort/ へコピーしたものを参照する。
@@ -263,19 +264,46 @@ async function fetchModelSizes(): Promise<Record<string, number>> {
   }
 }
 
-/** WebGPU が本当に使えるか (アダプタ取得まで) を確認して EP 候補を返す。 */
+interface GpuAdapterLike {
+  isFallbackAdapter?: boolean;
+  info?: {
+    vendor?: string;
+    architecture?: string;
+    description?: string;
+    isFallbackAdapter?: boolean;
+  };
+}
+
+/**
+ * WebGPU が本当に使えるか (ハードウェアアダプタ取得まで) を確認して EP 候補を返す。
+ * swiftshader 等のソフトウェア実装は wasm より桁違いに遅い (実測 649ms → 36s)
+ * ので、フォールバックアダプタしか無い環境は wasm を選ぶ。
+ */
 async function detectEpCandidates(): Promise<Ep[]> {
   if (typeof navigator !== 'undefined' && 'gpu' in navigator) {
     try {
-      const adapter = await (
-        navigator as Navigator & { gpu: { requestAdapter(): Promise<unknown> } }
-      ).gpu.requestAdapter();
-      if (adapter) return ['webgpu', 'wasm'];
+      const adapter = (await (
+        navigator as Navigator & {
+          gpu: { requestAdapter(): Promise<GpuAdapterLike | null> };
+        }
+      ).gpu.requestAdapter()) as GpuAdapterLike | null;
+      if (adapter && !isSoftwareAdapter(adapter)) return ['webgpu', 'wasm'];
     } catch {
       // WebGPU 不可 -> wasm へ。
     }
   }
   return ['wasm'];
+}
+
+/** ソフトウェア実装 (CPU エミュレーション) のアダプタか。info が無ければ実 GPU 扱い。 */
+function isSoftwareAdapter(adapter: GpuAdapterLike): boolean {
+  // isFallbackAdapter は仕様改訂で GPUAdapter -> GPUAdapterInfo へ移動したので両方見る。
+  if (adapter.isFallbackAdapter || adapter.info?.isFallbackAdapter) return true;
+  const info = adapter.info;
+  if (!info) return false;
+  const desc =
+    `${info.vendor ?? ''} ${info.architecture ?? ''} ${info.description ?? ''}`.toLowerCase();
+  return /swiftshader|llvmpipe|software/.test(desc);
 }
 
 function toFloat32(t: Tensor | undefined): Float32Array | null {
