@@ -1,0 +1,79 @@
+# web/ (raspicat-vla-web) を GitHub Pages へデプロイする。
+#
+# 注意:
+# - ONNX モデル (~590MB) と CLIP 語彙は git 管理外なので、Pages 上のサイトは
+#   **ダミー軌道モード** で動く (web/README.md 参照)。実推論はローカルで
+#   `pnpm sync-assets` してから使う。
+# - Pages は https 配信のため、Pi への ws:// 接続は mixed content で塞がれる。
+#   デモ/UI 確認用途 (実運用は localhost 配信、docs/design/web_port_spec.md §4)。
+name: deploy-pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'web/**'
+      - '.github/workflows/deploy-pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: web/package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Configure GitHub Pages
+        id: pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Install (postinstall が ORT ランタイムを public/ort/ へコピー)
+        working-directory: web
+        run: pnpm install --frozen-lockfile
+
+      - name: Test
+        working-directory: web
+        run: pnpm test
+
+      - name: Build (SSG, サブパス /<repo> 配信)
+        working-directory: web
+        run: pnpm build
+        env:
+          NEXT_PUBLIC_BASE_PATH: ${{ steps.pages.outputs.base_path }}
+
+      - run: touch web/out/.nojekyll
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/out
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

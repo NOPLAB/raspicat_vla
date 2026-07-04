@@ -1,0 +1,13 @@
+# deps / build
+node_modules/
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+
+# 実行時アセット (git 管理外)
+# - public/ort/   : postinstall が onnxruntime-web の dist からコピー
+# - モデル/語彙    : `pnpm sync-assets` が app/assets からコピー
+public/ort/
+public/models/*.onnx
+public/clip/*.gz
