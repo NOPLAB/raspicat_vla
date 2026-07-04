@@ -1,5 +1,9 @@
 # raspicat-vla
 
+[![ci-lint](https://github.com/NOPLAB/raspicat-vla/actions/workflows/ci-lint.yml/badge.svg?branch=main)](https://github.com/NOPLAB/raspicat-vla/actions/workflows/ci-lint.yml)
+[![ci-flutter](https://github.com/NOPLAB/raspicat-vla/actions/workflows/ci-flutter.yml/badge.svg?branch=main)](https://github.com/NOPLAB/raspicat-vla/actions/workflows/ci-flutter.yml)
+[![ci-web](https://github.com/NOPLAB/raspicat-vla/actions/workflows/ci-web.yml/badge.svg?branch=main)](https://github.com/NOPLAB/raspicat-vla/actions/workflows/ci-web.yml)
+
 ROS2 Humble nodes for running Vision-Language-Action (VLA) navigation models on
 the Raspberry Pi Cat (rt-net `raspicat`).
 
