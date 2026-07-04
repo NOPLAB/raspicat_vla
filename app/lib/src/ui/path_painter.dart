@@ -51,7 +51,11 @@ class PathPainter extends CustomPainter {
       canvas.drawCircle(project(wp), 5, dot);
     }
     // ロボット原点。
-    canvas.drawCircle(Offset(originX, originY), 6, Paint()..color = Colors.white);
+    canvas.drawCircle(
+      Offset(originX, originY),
+      6,
+      Paint()..color = Colors.white,
+    );
   }
 
   @override

@@ -8,8 +8,7 @@ import 'config.dart';
 /// (numTokens, embedDim) の waypoint 群。raw の x,y は waypoint-spacing 単位。
 class ActionChunk {
   ActionChunk(this.raw, {this.fromModel = true})
-      : assert(raw.length ==
-            OmniVlaConfig.lenTrajPred * OmniVlaConfig.actionDim);
+    : assert(raw.length == OmniVlaConfig.lenTrajPred * OmniVlaConfig.actionDim);
 
   /// flatten 済み (8*4)。行 = (x, y, cos, sin), 単位は spacing。
   final Float32List raw;
@@ -33,12 +32,11 @@ class ActionChunk {
 
   /// 全 waypoint の (x_m, y_m)。x=前方, y=左 (ロボット座標)。
   List<(double, double)> get xyMetres => [
-        for (var i = 0; i < numTokens; i++)
-          (
-            raw[i * OmniVlaConfig.actionDim] *
-                OmniVlaConfig.metricWaypointSpacing,
-            raw[i * OmniVlaConfig.actionDim + 1] *
-                OmniVlaConfig.metricWaypointSpacing,
-          )
-      ];
+    for (var i = 0; i < numTokens; i++)
+      (
+        raw[i * OmniVlaConfig.actionDim] * OmniVlaConfig.metricWaypointSpacing,
+        raw[i * OmniVlaConfig.actionDim + 1] *
+            OmniVlaConfig.metricWaypointSpacing,
+      ),
+  ];
 }

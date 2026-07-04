@@ -24,8 +24,8 @@ import 'preprocessing.dart';
 
 class OmniVlaEngine {
   OmniVlaEngine({OrtRunner? runner, ClipTokenizer? tokenizer})
-      : _runner = runner ?? OrtRunner(),
-        _tokenizer = tokenizer ?? ClipTokenizer();
+    : _runner = runner ?? OrtRunner(),
+      _tokenizer = tokenizer ?? ClipTokenizer();
 
   final OrtRunner _runner;
   final ClipTokenizer _tokenizer;
@@ -76,7 +76,9 @@ class OmniVlaEngine {
       ..setRange(6 * area, 9 * area, _ring.current);
 
     // 3. text 特徴 (キャッシュ)。
-    final featText = await _textFeatures(goal.mode == GoalMode.text ? goal.text : '');
+    final featText = await _textFeatures(
+      goal.mode == GoalMode.text ? goal.text : '',
+    );
 
     // 4. 推論 (未配置ならダミー)。
     final out = await _runner.runModel(
@@ -130,7 +132,9 @@ class OmniVlaEngine {
     }
     heading = heading.clamp(-0.6, 0.6);
 
-    final raw = Float32List(OmniVlaConfig.lenTrajPred * OmniVlaConfig.actionDim);
+    final raw = Float32List(
+      OmniVlaConfig.lenTrajPred * OmniVlaConfig.actionDim,
+    );
     var x = 0.0, y = 0.0, th = 0.0;
     for (var i = 0; i < OmniVlaConfig.lenTrajPred; i++) {
       th += heading / OmniVlaConfig.lenTrajPred;

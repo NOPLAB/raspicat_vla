@@ -54,7 +54,10 @@ class OrtRunner {
   Future<OrtSession?> _tryLoad(String asset) async {
     try {
       final raw = await rootBundle.load(asset);
-      final bytes = raw.buffer.asUint8List(raw.offsetInBytes, raw.lengthInBytes);
+      final bytes = raw.buffer.asUint8List(
+        raw.offsetInBytes,
+        raw.lengthInBytes,
+      );
       final options = OrtSessionOptions()
         ..setIntraOpNumThreads(_intraOpThreads)
         ..setInterOpNumThreads(1);
@@ -85,8 +88,10 @@ class OrtRunner {
     final runOptions = OrtRunOptions();
     try {
       // runAsync: 別 isolate で実行し UI スレッドを塞がない。
-      final future =
-          session.runAsync(runOptions, {_textInputName: input, _eotInputName: eot});
+      final future = session.runAsync(runOptions, {
+        _textInputName: input,
+        _eotInputName: eot,
+      });
       final outputs = future == null ? null : await future;
       if (outputs == null) return null;
       final flat = _flattenToFloat32(outputs.first?.value);
@@ -118,19 +123,33 @@ class OrtRunner {
     const l = OmniVlaConfig.largeSize;
     final inputs = <String, OrtValue>{
       _modelInputNames.obsImages: OrtValueTensor.createTensorWithDataList(
-          obsImages, [1, 3 * OmniVlaConfig.historyLen, s, s]),
-      _modelInputNames.goalPose:
-          OrtValueTensor.createTensorWithDataList(goalPose, [1, 4]),
-      _modelInputNames.mapImages:
-          OrtValueTensor.createTensorWithDataList(mapImages, [1, 9, s, s]),
-      _modelInputNames.goalImage:
-          OrtValueTensor.createTensorWithDataList(goalImage, [1, 3, s, s]),
+        obsImages,
+        [1, 3 * OmniVlaConfig.historyLen, s, s],
+      ),
+      _modelInputNames.goalPose: OrtValueTensor.createTensorWithDataList(
+        goalPose,
+        [1, 4],
+      ),
+      _modelInputNames.mapImages: OrtValueTensor.createTensorWithDataList(
+        mapImages,
+        [1, 9, s, s],
+      ),
+      _modelInputNames.goalImage: OrtValueTensor.createTensorWithDataList(
+        goalImage,
+        [1, 3, s, s],
+      ),
       _modelInputNames.modalityId: OrtValueTensor.createTensorWithDataList(
-          Int64List.fromList([modalityId]), [1]),
+        Int64List.fromList([modalityId]),
+        [1],
+      ),
       _modelInputNames.featText: OrtValueTensor.createTensorWithDataList(
-          featText, [1, OmniVlaConfig.clipTextDim]),
-      _modelInputNames.curLarge:
-          OrtValueTensor.createTensorWithDataList(curLarge, [1, 3, l, l]),
+        featText,
+        [1, OmniVlaConfig.clipTextDim],
+      ),
+      _modelInputNames.curLarge: OrtValueTensor.createTensorWithDataList(
+        curLarge,
+        [1, 3, l, l],
+      ),
     };
     final runOptions = OrtRunOptions();
     try {

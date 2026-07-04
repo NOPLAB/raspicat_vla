@@ -18,7 +18,8 @@ void main() {
     const area = OmniVlaConfig.obsSize * OmniVlaConfig.obsSize;
     expect(out.length, 3 * area);
     // 黒 = (0 - mean)/std。R plane 先頭を確認。
-    final expectedR = (0.0 - OmniVlaConfig.imagenetMean[0]) / OmniVlaConfig.imagenetStd[0];
+    final expectedR =
+        (0.0 - OmniVlaConfig.imagenetMean[0]) / OmniVlaConfig.imagenetStd[0];
     expect(out[0], closeTo(expectedR, 1e-5));
   });
 
@@ -58,7 +59,9 @@ void main() {
   });
 
   test('ActionChunk はメートル換算を返す', () {
-    final raw = Float32List(OmniVlaConfig.lenTrajPred * OmniVlaConfig.actionDim);
+    final raw = Float32List(
+      OmniVlaConfig.lenTrajPred * OmniVlaConfig.actionDim,
+    );
     raw[0] = 10.0; // x=10 units
     raw[1] = 0.0;
     final chunk = ActionChunk(raw);

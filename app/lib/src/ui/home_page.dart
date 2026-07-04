@@ -36,8 +36,10 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   CameraController? _controller;
   final OmniVlaEngine _engine = OmniVlaEngine();
-  CoalescingSender _sender =
-      CoalescingSender(LoggingEdgeClient(), minInterval: const Duration(milliseconds: 100));
+  CoalescingSender _sender = CoalescingSender(
+    LoggingEdgeClient(),
+    minInterval: const Duration(milliseconds: 100),
+  );
 
   /// 接続中の Pi (EdgeActionService) のアドレス。空 = 未接続 (端末内ログのみ)。
   String _piAddress = '';
@@ -101,8 +103,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         enableAudio: false,
         // iOS の yuv420 は 2 プレーン NV12 (video-range) で来るため、ネイティブに
         // 安くフルレンジな BGRA を使う。Android は従来どおり YUV420。
-        imageFormatGroup:
-            Platform.isIOS ? ImageFormatGroup.bgra8888 : ImageFormatGroup.yuv420,
+        imageFormatGroup: Platform.isIOS
+            ? ImageFormatGroup.bgra8888
+            : ImageFormatGroup.yuv420,
       );
       try {
         await c.initialize();
@@ -180,8 +183,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
     final old = _sender;
     final client = GrpcEdgeClient(host, port: port);
-    _sender = CoalescingSender(client,
-        minInterval: const Duration(milliseconds: 100));
+    _sender = CoalescingSender(
+      client,
+      minInterval: const Duration(milliseconds: 100),
+    );
     unawaited(old.close());
     await client.connect();
     if (mounted) setState(() => _piAddress = '$host:$port');
@@ -189,8 +194,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Future<void> _disconnectPi() async {
     final old = _sender;
-    _sender = CoalescingSender(LoggingEdgeClient(),
-        minInterval: const Duration(milliseconds: 100));
+    _sender = CoalescingSender(
+      LoggingEdgeClient(),
+      minInterval: const Duration(milliseconds: 100),
+    );
     unawaited(old.close());
     if (mounted) setState(() => _piAddress = '');
   }
@@ -246,13 +253,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => GoalPanel(onGoal: _setGoal, currentFrame: () => _currentFrame),
+      builder: (_) =>
+          GoalPanel(onGoal: _setGoal, currentFrame: () => _currentFrame),
     );
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused) {
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused) {
       // 画面 OFF 等ではカメラだけ解放 (モデルは保持)。
       _controller?.dispose();
       if (mounted) setState(() => _controller = null);
@@ -326,8 +335,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               const SizedBox(height: 12),
               Text(_error, textAlign: TextAlign.center),
               const SizedBox(height: 8),
-              Text('推論エンジン: $_engineStatus',
-                  style: Theme.of(context).textTheme.bodySmall),
+              Text(
+                '推論エンジン: $_engineStatus',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
             ],
           ),
         ),
@@ -375,12 +386,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('エンジン: $_engineStatus   推論: ${_lastLatencyMs}ms'
-                '${_running ? "" : "   [停止中]"}'),
+            Text(
+              'エンジン: $_engineStatus   推論: ${_lastLatencyMs}ms'
+              '${_running ? "" : "   [停止中]"}',
+            ),
             Text('ゴール: ${_goal?.id ?? "未設定"}'),
             Text('送信: ${_sender.status}'),
             if (_tickError.isNotEmpty)
-              Text(_tickError, style: const TextStyle(color: Color(0xFFFF8A80))),
+              Text(
+                _tickError,
+                style: const TextStyle(color: Color(0xFFFF8A80)),
+              ),
           ],
         ),
       ),

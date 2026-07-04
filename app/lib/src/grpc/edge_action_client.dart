@@ -35,7 +35,11 @@ abstract class EdgeActionClient {
   Future<void> connect();
 
   /// 1 chunk を送る。frameId / goalId はメタ。
-  Future<void> send(ActionChunk chunk, {required int frameId, required String goalId});
+  Future<void> send(
+    ActionChunk chunk, {
+    required int frameId,
+    required String goalId,
+  });
 
   /// 直近の接続/追従ステータス (UI 表示用)。
   String get status;
@@ -52,9 +56,14 @@ class LoggingEdgeClient implements EdgeActionClient {
   Future<void> connect() async {}
 
   @override
-  Future<void> send(ActionChunk chunk, {required int frameId, required String goalId}) async {
+  Future<void> send(
+    ActionChunk chunk, {
+    required int frameId,
+    required String goalId,
+  }) async {
     _count++;
-    _status = 'sent #$frameId (${chunk.fromModel ? "model" : "dummy"}) x$_count';
+    _status =
+        'sent #$frameId (${chunk.fromModel ? "model" : "dummy"}) x$_count';
   }
 
   @override
@@ -107,7 +116,8 @@ class GrpcEdgeClient implements EdgeActionClient {
     final acks = _stub!.streamActions(requests.stream);
     acks.listen(
       (ack) {
-        _status = 'Pi応答 #${ack.frameId} '
+        _status =
+            'Pi応答 #${ack.frameId} '
             '${ack.following ? "追従中" : "停止"} (${ack.status})';
       },
       onError: (Object e) {
@@ -128,8 +138,11 @@ class GrpcEdgeClient implements EdgeActionClient {
   }
 
   @override
-  Future<void> send(ActionChunk chunk,
-      {required int frameId, required String goalId}) async {
+  Future<void> send(
+    ActionChunk chunk, {
+    required int frameId,
+    required String goalId,
+  }) async {
     if (_stub == null) await connect();
     _ensureStream();
     // メートル化した (x, y, cos, sin) × numTokens を fp16 でパック。
@@ -140,16 +153,18 @@ class GrpcEdgeClient implements EdgeActionClient {
         values[i * chunk.embedDim + j] = row[j];
       }
     }
-    _requests!.add(pb.ActionChunk(
-      frameId: Int64(frameId),
-      captureTimeNs: Int64(DateTime.now().microsecondsSinceEpoch) * 1000,
-      numTokens: chunk.numTokens,
-      embedDim: chunk.embedDim,
-      valuesFp16: packFp16(values),
-      scaledToM: true,
-      goalId: goalId,
-      fromModel: chunk.fromModel,
-    ));
+    _requests!.add(
+      pb.ActionChunk(
+        frameId: Int64(frameId),
+        captureTimeNs: Int64(DateTime.now().microsecondsSinceEpoch) * 1000,
+        numTokens: chunk.numTokens,
+        embedDim: chunk.embedDim,
+        valuesFp16: packFp16(values),
+        scaledToM: true,
+        goalId: goalId,
+        fromModel: chunk.fromModel,
+      ),
+    );
   }
 
   @override
@@ -172,8 +187,10 @@ class GrpcEdgeClient implements EdgeActionClient {
 /// [submit] は即時 return (制御ループを塞がない)。実送信は内部タイマで行い、
 /// 送信中に来た新しい chunk は古いものを上書きする。
 class CoalescingSender {
-  CoalescingSender(this._client,
-      {this._minInterval = const Duration(milliseconds: 100)});
+  CoalescingSender(
+    this._client, {
+    this._minInterval = const Duration(milliseconds: 100),
+  });
 
   final EdgeActionClient _client;
   final Duration _minInterval;
@@ -187,7 +204,11 @@ class CoalescingSender {
   String get status => _client.status;
 
   /// 送信キューへ投入 (最新のみ保持)。
-  void submit(ActionChunk chunk, {required int frameId, required String goalId}) {
+  void submit(
+    ActionChunk chunk, {
+    required int frameId,
+    required String goalId,
+  }) {
     _pending = chunk;
     _pendingFrameId = frameId;
     _pendingGoalId = goalId;
@@ -208,7 +229,11 @@ class CoalescingSender {
         if (chunk == null) break;
         _pending = null;
         _lastSent = DateTime.now();
-        await _client.send(chunk, frameId: _pendingFrameId, goalId: _pendingGoalId);
+        await _client.send(
+          chunk,
+          frameId: _pendingFrameId,
+          goalId: _pendingGoalId,
+        );
       }
     } finally {
       _sending = false;

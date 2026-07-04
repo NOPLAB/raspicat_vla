@@ -44,11 +44,13 @@ class _GoalPanelState extends State<GoalPanel> {
       case GoalMode.text:
         widget.onGoal(Goal.text(_textCtrl.text.trim()));
       case GoalMode.pose:
-        widget.onGoal(Goal.pose(
-          double.tryParse(_xCtrl.text) ?? 0,
-          double.tryParse(_yCtrl.text) ?? 0,
-          double.tryParse(_thetaCtrl.text) ?? 0,
-        ));
+        widget.onGoal(
+          Goal.pose(
+            double.tryParse(_xCtrl.text) ?? 0,
+            double.tryParse(_yCtrl.text) ?? 0,
+            double.tryParse(_thetaCtrl.text) ?? 0,
+          ),
+        );
       case GoalMode.image:
         final frame = widget.currentFrame();
         if (frame == null) {
@@ -77,9 +79,21 @@ class _GoalPanelState extends State<GoalPanel> {
           const SizedBox(height: 12),
           SegmentedButton<GoalMode>(
             segments: const [
-              ButtonSegment(value: GoalMode.text, label: Text('テキスト'), icon: Icon(Icons.text_fields)),
-              ButtonSegment(value: GoalMode.pose, label: Text('ポーズ'), icon: Icon(Icons.explore)),
-              ButtonSegment(value: GoalMode.image, label: Text('画像'), icon: Icon(Icons.image)),
+              ButtonSegment(
+                value: GoalMode.text,
+                label: Text('テキスト'),
+                icon: Icon(Icons.text_fields),
+              ),
+              ButtonSegment(
+                value: GoalMode.pose,
+                label: Text('ポーズ'),
+                icon: Icon(Icons.explore),
+              ),
+              ButtonSegment(
+                value: GoalMode.image,
+                label: Text('画像'),
+                icon: Icon(Icons.image),
+              ),
             ],
             selected: {_mode},
             onSelectionChanged: (s) => setState(() => _mode = s.first),
@@ -127,8 +141,14 @@ class _GoalPanelState extends State<GoalPanel> {
   }
 
   Widget _numField(TextEditingController c, String label) => TextField(
-        controller: c,
-        keyboardType: const TextInputType.numberWithOptions(signed: true, decimal: true),
-        decoration: InputDecoration(labelText: label, border: const OutlineInputBorder()),
-      );
+    controller: c,
+    keyboardType: const TextInputType.numberWithOptions(
+      signed: true,
+      decimal: true,
+    ),
+    decoration: InputDecoration(
+      labelText: label,
+      border: const OutlineInputBorder(),
+    ),
+  );
 }
