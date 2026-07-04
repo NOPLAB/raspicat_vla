@@ -7,7 +7,13 @@
 
 import { useRef, useState } from 'react';
 
-import { imageGoal, poseGoal, textGoal, type Goal, type GoalMode } from '@/lib/goal';
+import {
+  type Goal,
+  type GoalMode,
+  imageGoal,
+  poseGoal,
+  textGoal,
+} from '@/lib/goal';
 import type { RgbaImage } from '@/lib/preprocessing';
 
 export default function GoalPanel({
@@ -70,6 +76,7 @@ export default function GoalPanel({
         {(['text', 'pose', 'image'] as const).map((mode) => (
           <button
             key={mode}
+            type="button"
             className={tab === mode ? 'active' : ''}
             onClick={() => setTab(mode)}
           >
@@ -87,7 +94,7 @@ export default function GoalPanel({
             onKeyDown={(e) => e.key === 'Enter' && submitText()}
             placeholder="例: go to the door"
           />
-          <button className="primary" onClick={submitText}>
+          <button type="button" className="primary" onClick={submitText}>
             設定
           </button>
         </div>
@@ -96,12 +103,25 @@ export default function GoalPanel({
       {tab === 'pose' && (
         <>
           <div className="row">
-            <label>x[m]</label>
-            <input type="number" step="0.1" value={x} onChange={(e) => setX(e.target.value)} />
-            <label>y[m]</label>
-            <input type="number" step="0.1" value={y} onChange={(e) => setY(e.target.value)} />
-            <label>θ[rad]</label>
+            <label htmlFor="goal-x">x[m]</label>
             <input
+              id="goal-x"
+              type="number"
+              step="0.1"
+              value={x}
+              onChange={(e) => setX(e.target.value)}
+            />
+            <label htmlFor="goal-y">y[m]</label>
+            <input
+              id="goal-y"
+              type="number"
+              step="0.1"
+              value={y}
+              onChange={(e) => setY(e.target.value)}
+            />
+            <label htmlFor="goal-theta">θ[rad]</label>
+            <input
+              id="goal-theta"
               type="number"
               step="0.1"
               value={theta}
@@ -109,7 +129,7 @@ export default function GoalPanel({
             />
           </div>
           <div className="row">
-            <button className="primary" onClick={submitPose}>
+            <button type="button" className="primary" onClick={submitPose}>
               設定
             </button>
             <span className="hint">ロボット相対 (x=前方, y=左)</span>
@@ -120,11 +140,16 @@ export default function GoalPanel({
       {tab === 'image' && (
         <>
           <div className="row">
-            <button className="primary" onClick={submitImage}>
+            <button type="button" className="primary" onClick={submitImage}>
               現在フレームをゴールに設定
             </button>
           </div>
-          <canvas ref={previewRef} className="goal-preview" width={96} height={96} />
+          <canvas
+            ref={previewRef}
+            className="goal-preview"
+            width={96}
+            height={96}
+          />
         </>
       )}
 

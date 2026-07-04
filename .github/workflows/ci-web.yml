@@ -1,0 +1,62 @@
+# web/ (raspicat-vla-web) の CI。Biome (lint + format)・型チェック・ユニット
+# テスト・SSG ビルドを行う。Pages への公開は deploy-pages.yml が担当。
+#
+# 注意:
+# - ONNX モデル (~590MB) と CLIP 語彙は git 管理外。無くてもアプリはダミー
+#   軌道にフォールバックする設計なので、CI ではダウンロードせずビルドだけ通す。
+# - onnxruntime-web の wasm ランタイムは pnpm install の postinstall が
+#   public/ort/ へコピーする。
+name: ci-web
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'web/**'
+      - '.github/workflows/ci-web.yml'
+  pull_request:
+    paths:
+      - 'web/**'
+      - '.github/workflows/ci-web.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-web-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: web/package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint (Biome)
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build (SSG)
+        run: pnpm build

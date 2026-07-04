@@ -29,7 +29,11 @@ export interface RgbaImage {
  * RGB interleaved の uint8 (丸め済み) を返す。拡大方向でも同じ重み計算で
  * 動く (≒box 補間) が、想定入力 (>=240px) では縮小のみ。
  */
-export function areaResizeRgb(src: RgbaImage, dstW: number, dstH: number): Uint8Array {
+export function areaResizeRgb(
+  src: RgbaImage,
+  dstW: number,
+  dstH: number,
+): Uint8Array {
   const { width: sw, height: sh, data } = src;
   const out = new Uint8Array(dstW * dstH * 3);
   const sx = sw / dstW;
@@ -111,7 +115,8 @@ export function blackChw(size: number): Float32Array {
   const area = size * size;
   const out = new Float32Array(3 * area);
   for (let c = 0; c < 3; c++) {
-    const v = (0 - OmniVlaConfig.imagenetMean[c]) / OmniVlaConfig.imagenetStd[c];
+    const v =
+      (0 - OmniVlaConfig.imagenetMean[c]) / OmniVlaConfig.imagenetStd[c];
     out.fill(v, c * area, (c + 1) * area);
   }
   return out;
@@ -122,7 +127,9 @@ export function blackChw(size: number): Float32Array {
  * `_pose_goal_vector` と一致: `(x_fwd/spacing, y_left/spacing, cos, sin)`。
  * 半径を goalDistThresholdM でクランプ。
  */
-export function poseGoalVector(xyTheta: readonly [number, number, number]): Float32Array {
+export function poseGoalVector(
+  xyTheta: readonly [number, number, number],
+): Float32Array {
   let [xFwd, yLeft] = xyTheta;
   const theta = xyTheta[2];
   const radius = Math.hypot(xFwd, yLeft);
@@ -132,7 +139,12 @@ export function poseGoalVector(xyTheta: readonly [number, number, number]): Floa
     yLeft *= scale;
   }
   const spacing = OmniVlaConfig.metricWaypointSpacing;
-  return Float32Array.of(xFwd / spacing, yLeft / spacing, Math.cos(theta), Math.sin(theta));
+  return Float32Array.of(
+    xFwd / spacing,
+    yLeft / spacing,
+    Math.cos(theta),
+    Math.sin(theta),
+  );
 }
 
 /**
@@ -172,7 +184,8 @@ export class ObsRingBuffer {
 
   /** (1, 3*historyLen, 96, 96) を flatten した Float32Array。古い順・前詰め。 */
   stack(): Float32Array {
-    if (this.frames.length === 0) throw new Error('no observation frames buffered yet');
+    if (this.frames.length === 0)
+      throw new Error('no observation frames buffered yet');
     const out = new Float32Array(this.capacity * this.frameLen);
     const deficit = this.capacity - this.frames.length;
     let offset = 0;

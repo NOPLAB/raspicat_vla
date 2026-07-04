@@ -15,11 +15,11 @@ import { ClipTokenizer } from './clipTokenizer';
 import { OmniVlaConfig } from './config';
 import type { Goal } from './goal';
 import { modalityId } from './goal';
-import { OrtRunner, type Ep, type OrtInitProgress } from './ortRunner';
+import { type Ep, type OrtInitProgress, OrtRunner } from './ortRunner';
 import {
-  ObsRingBuffer,
   blackChw,
   normalizeChw,
+  ObsRingBuffer,
   poseGoalVector,
   type RgbaImage,
 } from './preprocessing';
@@ -95,7 +95,9 @@ export class OmniVlaEngine {
     mapImages.set(this.ring.current, 6 * area);
 
     // 3. text 特徴 (キャッシュ)。
-    const featText = await this.textFeatures(goal.mode === 'text' ? goal.text : '');
+    const featText = await this.textFeatures(
+      goal.mode === 'text' ? goal.text : '',
+    );
 
     // 4. 推論 (未配置ならダミー)。
     const out = await this.runner.runModel({
@@ -149,7 +151,9 @@ export class OmniVlaEngine {
     }
     heading = Math.max(-0.6, Math.min(0.6, heading));
 
-    const raw = new Float32Array(OmniVlaConfig.lenTrajPred * OmniVlaConfig.actionDim);
+    const raw = new Float32Array(
+      OmniVlaConfig.lenTrajPred * OmniVlaConfig.actionDim,
+    );
     let x = 0;
     let y = 0;
     let th = 0;

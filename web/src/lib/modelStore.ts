@@ -35,7 +35,11 @@ export async function fetchModelCached(
       const hit = await cache.match(url);
       if (hit) {
         const buf = await hit.arrayBuffer();
-        onProgress?.({ loaded: buf.byteLength, total: buf.byteLength, fromCache: true });
+        onProgress?.({
+          loaded: buf.byteLength,
+          total: buf.byteLength,
+          fromCache: true,
+        });
         return new Uint8Array(buf);
       }
     } catch {
@@ -72,7 +76,10 @@ export async function fetchModelCached(
   if (cacheAvailable()) {
     try {
       const cache = await caches.open(CACHE_NAME);
-      await cache.put(url, new Response(bytes, { headers: { 'content-length': `${loaded}` } }));
+      await cache.put(
+        url,
+        new Response(bytes, { headers: { 'content-length': `${loaded}` } }),
+      );
     } catch {
       // 容量不足等。保存できなくても動作には影響しない。
     }

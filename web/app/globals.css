@@ -18,7 +18,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: 'Hiragino Sans', 'Noto Sans JP', system-ui, sans-serif;
+  font-family: "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
   font-size: 14px;
 }
 
@@ -102,7 +102,7 @@ body {
   border-radius: 8px;
   font-size: 12px;
   line-height: 1.6;
-  font-family: ui-monospace, 'Cascadia Mono', monospace;
+  font-family: ui-monospace, "Cascadia Mono", monospace;
   white-space: pre-wrap;
   word-break: break-all;
 }
@@ -148,12 +148,13 @@ body {
   flex-wrap: wrap;
 }
 
-.row label {
+.row label,
+.row .row-label {
   color: var(--text-dim);
 }
 
-input[type='text'],
-input[type='number'] {
+input[type="text"],
+input[type="number"] {
   background: #0d1116;
   color: var(--text);
   border: 1px solid var(--panel-border);
@@ -162,12 +163,12 @@ input[type='number'] {
   font-size: 13px;
 }
 
-input[type='text'] {
+input[type="text"] {
   flex: 1;
   min-width: 0;
 }
 
-input[type='number'] {
+input[type="number"] {
   width: 72px;
 }
 

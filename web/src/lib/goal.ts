@@ -27,7 +27,13 @@ export function modalityId(mode: GoalMode): number {
 }
 
 export function textGoal(text: string): Goal {
-  return { mode: 'text', text, poseXyTheta: null, image: null, id: `text:${text}` };
+  return {
+    mode: 'text',
+    text,
+    poseXyTheta: null,
+    image: null,
+    id: `text:${text}`,
+  };
 }
 
 export function poseGoal(x: number, y: number, theta: number): Goal {
@@ -45,5 +51,11 @@ let imageGoalSeq = 0;
 
 export function imageGoal(image: RgbaImage): Goal {
   imageGoalSeq += 1;
-  return { mode: 'image', text: '', poseXyTheta: null, image, id: `image:${imageGoalSeq}` };
+  return {
+    mode: 'image',
+    text: '',
+    poseXyTheta: null,
+    image,
+    id: `image:${imageGoalSeq}`,
+  };
 }

@@ -12,7 +12,10 @@ import { ClipTokenizer } from '@/lib/clipTokenizer';
 import { OmniVlaConfig } from '@/lib/config';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const vocabPath = path.resolve(here, '../../app/assets/clip/bpe_simple_vocab_16e6.txt.gz');
+const vocabPath = path.resolve(
+  here,
+  '../../app/assets/clip/bpe_simple_vocab_16e6.txt.gz',
+);
 const hasVocab = existsSync(vocabPath);
 
 const SOT = 49406;
@@ -29,7 +32,9 @@ describe('ClipTokenizer', () => {
     const t = new ClipTokenizer();
     expect(t.ready).toBe(false);
     expect(t.eotToken).toBe(EOT);
-    expect([...t.tokenize('hello')]).toEqual(new Array(OmniVlaConfig.clipContextLength).fill(0));
+    expect([...t.tokenize('hello')]).toEqual(
+      new Array(OmniVlaConfig.clipContextLength).fill(0),
+    );
   });
 
   it.skipIf(!hasVocab)('SOT/EOT/pad の構造と単字トークン', () => {
@@ -47,7 +52,9 @@ describe('ClipTokenizer', () => {
 
   it.skipIf(!hasVocab)('大文字小文字・空白正規化で同一トークン列', () => {
     const t = loadTokenizer();
-    expect([...t.tokenize('  Go  TO the Door ')]).toEqual([...t.tokenize('go to the door')]);
+    expect([...t.tokenize('  Go  TO the Door ')]).toEqual([
+      ...t.tokenize('go to the door'),
+    ]);
   });
 
   it.skipIf(!hasVocab)('長文は 77 に truncate され末尾 EOT', () => {

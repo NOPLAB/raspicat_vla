@@ -1,8 +1,9 @@
 // onnxruntime-web の wasm/mjs ランタイムを public/ort/ へコピーする。
 // ブラウザ側は `ort.env.wasm.wasmPaths = '/ort/'` でここを参照する (ortRunner.ts)。
 // postinstall で毎回走る (冪等)。
+
+import { cpSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { cpSync, mkdirSync, readdirSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -12,12 +13,22 @@ const webRoot = path.resolve(here, '..');
 function ortDistDir() {
   const require = createRequire(import.meta.url);
   try {
-    return path.join(path.dirname(require.resolve('onnxruntime-web/package.json')), 'dist');
+    return path.join(
+      path.dirname(require.resolve('onnxruntime-web/package.json')),
+      'dist',
+    );
   } catch {
     // exports が package.json を公開していない場合のフォールバック (pnpm の実体を辿る)。
-    const direct = path.join(webRoot, 'node_modules', 'onnxruntime-web', 'dist');
+    const direct = path.join(
+      webRoot,
+      'node_modules',
+      'onnxruntime-web',
+      'dist',
+    );
     if (existsSync(direct)) return direct;
-    throw new Error('onnxruntime-web が見つかりません。pnpm install 後に実行してください。');
+    throw new Error(
+      'onnxruntime-web が見つかりません。pnpm install 後に実行してください。',
+    );
   }
 }
 

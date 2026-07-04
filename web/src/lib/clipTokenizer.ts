@@ -71,8 +71,13 @@ export class ClipTokenizer {
     for (let i = 0; i < merges.length; i++) {
       this.bpeRanks.set(merges[i], i);
     }
-    this.sot = this.encoder.get('<|startoftext|>')!;
-    this.eot = this.encoder.get('<|endoftext|>')!;
+    const sot = this.encoder.get('<|startoftext|>');
+    const eot = this.encoder.get('<|endoftext|>');
+    if (sot === undefined || eot === undefined) {
+      throw new Error('CLIP vocab に SOT/EOT トークンがありません');
+    }
+    this.sot = sot;
+    this.eot = eot;
     this.cache.clear();
     this.isReady = true;
   }
@@ -90,7 +95,8 @@ export class ClipTokenizer {
       const bytes = new TextEncoder().encode(token);
       let mapped = '';
       for (const b of bytes) {
-        mapped += this.byteEncoder.get(b)!;
+        // byteEncoder は 0..255 を網羅するので必ずヒットする。
+        mapped += this.byteEncoder.get(b) ?? '';
       }
       for (const bpeTok of this.bpe(mapped).split(' ')) {
         const id = this.encoder.get(bpeTok);
@@ -149,7 +155,11 @@ export class ClipTokenizer {
           break;
         }
         newWord.push(...word.slice(i, j));
-        if (word[j] === first && j < word.length - 1 && word[j + 1] === second) {
+        if (
+          word[j] === first &&
+          j < word.length - 1 &&
+          word[j + 1] === second
+        ) {
           newWord.push(first + second);
           i = j + 2;
         } else {

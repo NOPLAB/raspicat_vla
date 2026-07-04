@@ -11,15 +11,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { ActionChunk } from '@/lib/actionChunk';
+import {
+  CoalescingSender,
+  type EdgeActionClient,
+  LoggingEdgeClient,
+} from '@/lib/edgeSender';
 import { OmniVlaEngine, type OrtInitProgress } from '@/lib/engine';
 import type { Goal } from '@/lib/goal';
 import { clearModelCache } from '@/lib/modelStore';
 import type { RgbaImage } from '@/lib/preprocessing';
-import {
-  CoalescingSender,
-  LoggingEdgeClient,
-  type EdgeActionClient,
-} from '@/lib/edgeSender';
 import { WsEdgeClient } from '@/lib/wsEdgeClient';
 
 import ControlPanel, { type VideoSource } from './ControlPanel';
@@ -39,13 +39,13 @@ let engineInitPromise: Promise<void> | null = null;
 const progressListeners = new Set<(p: OrtInitProgress) => void>();
 
 function ensureEngine(): { engine: OmniVlaEngine; ready: Promise<void> } {
-  if (engineSingleton === null) {
+  if (engineSingleton === null || engineInitPromise === null) {
     engineSingleton = new OmniVlaEngine();
     engineInitPromise = engineSingleton.init((p) => {
       for (const l of progressListeners) l(p);
     });
   }
-  return { engine: engineSingleton, ready: engineInitPromise! };
+  return { engine: engineSingleton, ready: engineInitPromise };
 }
 
 export default function VlaApp() {
@@ -64,7 +64,9 @@ export default function VlaApp() {
 
   const [engineReady, setEngineReady] = useState(false);
   const [engineStatus, setEngineStatus] = useState('初期化中…');
-  const [initProgress, setInitProgress] = useState<OrtInitProgress | null>(null);
+  const [initProgress, setInitProgress] = useState<OrtInitProgress | null>(
+    null,
+  );
   const [source, setSource] = useState<VideoSource>('camera');
   const [fileUrl, setFileUrl] = useState<string | null>(null);
   const [videoError, setVideoError] = useState('');
@@ -111,11 +113,15 @@ export default function VlaApp() {
     (async () => {
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } },
+          video: {
+            facingMode: 'environment',
+            width: { ideal: 640 },
+            height: { ideal: 480 },
+          },
           audio: false,
         });
         if (cancelled) {
-          stream.getTracks().forEach((t) => t.stop());
+          for (const t of stream.getTracks()) t.stop();
           return;
         }
         if (video) {
@@ -132,7 +138,7 @@ export default function VlaApp() {
     })();
     return () => {
       cancelled = true;
-      stream?.getTracks().forEach((t) => t.stop());
+      for (const t of stream?.getTracks() ?? []) t.stop();
       if (video) video.srcObject = null;
     };
   }, [source]);
@@ -167,7 +173,8 @@ export default function VlaApp() {
     const engine = engineRef.current;
     const video = videoRef.current;
     const goalNow = goalRef.current;
-    if (busyRef.current || !runningRef.current || !engine || !video || !goalNow) return;
+    if (busyRef.current || !runningRef.current || !engine || !video || !goalNow)
+      return;
     if (video.readyState < 2 || video.videoWidth === 0) return;
     busyRef.current = true;
     const t0 = performance.now();
@@ -201,7 +208,10 @@ export default function VlaApp() {
 
       const result = await engine.inferChunk(frame, goalNow);
       frameIdRef.current += 1;
-      senderRef.current.submit(result, { frameId: frameIdRef.current, goalId: goalNow.id });
+      senderRef.current.submit(result, {
+        frameId: frameIdRef.current,
+        goalId: goalNow.id,
+      });
 
       setChunk(result);
       setLatencyMs(Math.round(performance.now() - t0));
@@ -260,20 +270,23 @@ export default function VlaApp() {
 
   const handleClearCache = useCallback(() => {
     void clearModelCache().then((ok) => {
-      setCacheNote(ok ? '削除しました (次回リロードで再取得)' : 'キャッシュはありません');
+      setCacheNote(
+        ok ? '削除しました (次回リロードで再取得)' : 'キャッシュはありません',
+      );
     });
   }, []);
 
-  const progressPct =
-    initProgress?.fetch && initProgress.fetch.total
-      ? Math.round((initProgress.fetch.loaded / initProgress.fetch.total) * 100)
-      : null;
+  const progressPct = initProgress?.fetch?.total
+    ? Math.round((initProgress.fetch.loaded / initProgress.fetch.total) * 100)
+    : null;
 
   return (
     <main className="app">
       <header className="app-header">
         <h1>Raspicat OmniVLA (web)</h1>
-        <span className={`badge ${engineReady ? (chunk?.fromModel ? 'ok' : 'warn') : ''}`}>
+        <span
+          className={`badge ${engineReady ? (chunk?.fromModel ? 'ok' : 'warn') : ''}`}
+        >
           {engineStatus}
         </span>
       </header>
@@ -284,11 +297,15 @@ export default function VlaApp() {
             {/* muted/playsInline: 自動再生を許可させる */}
             <video ref={videoRef} muted playsInline />
             {chunk !== null && (
-              <PathOverlay waypoints={chunk.xyMetres} fromModel={chunk.fromModel} />
+              <PathOverlay
+                waypoints={chunk.xyMetres}
+                fromModel={chunk.fromModel}
+              />
             )}
             <div className="status-bar">
               <div>
-                エンジン: {engineStatus} 推論: {latencyMs}ms{running ? '' : ' [停止中]'}
+                エンジン: {engineStatus} 推論: {latencyMs}ms
+                {running ? '' : ' [停止中]'}
               </div>
               <div>ゴール: {goal?.id ?? '未設定'}</div>
               <div>送信: {senderStatus}</div>
@@ -309,7 +326,10 @@ export default function VlaApp() {
             </div>
             {goal === null && (
               <div className="viewport-placeholder">
-                <p>右のパネルからゴール (text / pose / image) を設定すると推論が始まります。</p>
+                <p>
+                  右のパネルからゴール (text / pose / image)
+                  を設定すると推論が始まります。
+                </p>
               </div>
             )}
           </div>
@@ -330,7 +350,10 @@ export default function VlaApp() {
             onClearCache={handleClearCache}
             cacheNote={cacheNote}
           />
-          <GoalPanel onGoal={handleGoal} getCurrentFrame={() => currentFrameRef.current} />
+          <GoalPanel
+            onGoal={handleGoal}
+            getCurrentFrame={() => currentFrameRef.current}
+          />
         </aside>
       </div>
     </main>

@@ -4,15 +4,21 @@ import { describe, expect, it } from 'vitest';
 import { ActionChunk } from '@/lib/actionChunk';
 import { OmniVlaConfig } from '@/lib/config';
 import {
-  ObsRingBuffer,
   areaResizeRgb,
   blackChw,
   normalizeChw,
+  ObsRingBuffer,
   poseGoalVector,
   type RgbaImage,
 } from '@/lib/preprocessing';
 
-function solidImage(width: number, height: number, r: number, g: number, b: number): RgbaImage {
+function solidImage(
+  width: number,
+  height: number,
+  r: number,
+  g: number,
+  b: number,
+): RgbaImage {
   const data = new Uint8ClampedArray(width * height * 4);
   for (let i = 0; i < width * height; i++) {
     data[i * 4] = r;
@@ -29,14 +35,16 @@ describe('normalizeChw', () => {
     const out = normalizeChw(solidImage(size, size, 0, 0, 0), size);
     const area = size * size;
     expect(out.length).toBe(3 * area);
-    const expectedR = (0 - OmniVlaConfig.imagenetMean[0]) / OmniVlaConfig.imagenetStd[0];
+    const expectedR =
+      (0 - OmniVlaConfig.imagenetMean[0]) / OmniVlaConfig.imagenetStd[0];
     expect(out[0]).toBeCloseTo(expectedR, 5);
   });
 
   it('リサイズを挟んでも一様画像は同じ値', () => {
     const out = normalizeChw(solidImage(480, 480, 128, 64, 200), 96);
     const area = 96 * 96;
-    const expectG = (64 / 255 - OmniVlaConfig.imagenetMean[1]) / OmniVlaConfig.imagenetStd[1];
+    const expectG =
+      (64 / 255 - OmniVlaConfig.imagenetMean[1]) / OmniVlaConfig.imagenetStd[1];
     expect(out[area]).toBeCloseTo(expectG, 5);
     expect(out[2 * area - 1]).toBeCloseTo(expectG, 5);
   });
@@ -62,8 +70,7 @@ describe('areaResizeRgb', () => {
       width: 2,
       height: 2,
       data: new Uint8ClampedArray([
-        10, 0, 0, 255, 20, 0, 0, 255,
-        30, 0, 0, 255, 40, 0, 0, 255,
+        10, 0, 0, 255, 20, 0, 0, 255, 30, 0, 0, 255, 40, 0, 0, 255,
       ]),
     };
     const out = areaResizeRgb(src, 1, 1);
@@ -75,9 +82,7 @@ describe('areaResizeRgb', () => {
     const src: RgbaImage = {
       width: 3,
       height: 1,
-      data: new Uint8ClampedArray([
-        0, 0, 0, 255, 90, 0, 0, 255, 30, 0, 0, 255,
-      ]),
+      data: new Uint8ClampedArray([0, 0, 0, 255, 90, 0, 0, 255, 30, 0, 0, 255]),
     };
     const out = areaResizeRgb(src, 2, 1);
     expect(out[0]).toBe(Math.round((0 * 1 + 90 * 0.5) / 1.5)); // 30
@@ -94,7 +99,10 @@ describe('poseGoalVector', () => {
     expect(v[3]).toBeCloseTo(0.0, 6);
 
     const far = poseGoalVector([100.0, 0.0, 0.0]);
-    expect(far[0]).toBeCloseTo(OmniVlaConfig.goalDistThresholdM / OmniVlaConfig.metricWaypointSpacing, 2);
+    expect(far[0]).toBeCloseTo(
+      OmniVlaConfig.goalDistThresholdM / OmniVlaConfig.metricWaypointSpacing,
+      2,
+    );
   });
 });
 
@@ -124,7 +132,9 @@ describe('ObsRingBuffer', () => {
 
 describe('ActionChunk', () => {
   it('メートル換算を返す', () => {
-    const raw = new Float32Array(OmniVlaConfig.lenTrajPred * OmniVlaConfig.actionDim);
+    const raw = new Float32Array(
+      OmniVlaConfig.lenTrajPred * OmniVlaConfig.actionDim,
+    );
     raw[0] = 10; // x = 10 unit
     const chunk = new ActionChunk(raw, true);
     expect(chunk.xyMetres[0][0]).toBeCloseTo(1.0, 6); // 10 * 0.1m

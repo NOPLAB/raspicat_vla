@@ -40,14 +40,15 @@ export default function ControlPanel({
       <h2>入力と接続</h2>
 
       <div className="row">
-        <label>映像:</label>
+        <span className="row-label">映像:</span>
         <button
+          type="button"
           className={source === 'camera' ? 'primary' : ''}
           onClick={() => onSource('camera')}
         >
           カメラ
         </button>
-        <button onClick={() => fileRef.current?.click()}>
+        <button type="button" onClick={() => fileRef.current?.click()}>
           動画ファイル{source === 'file' ? ' ✓' : ''}
         </button>
         <input
@@ -61,12 +62,15 @@ export default function ControlPanel({
             e.target.value = '';
           }}
         />
-        <button onClick={onToggleRunning}>{running ? '⏸ 停止' : '▶ 再開'}</button>
+        <button type="button" onClick={onToggleRunning}>
+          {running ? '⏸ 停止' : '▶ 再開'}
+        </button>
       </div>
 
       <div className="row">
-        <label>Pi WS:</label>
+        <label htmlFor="ws-url">Pi WS:</label>
         <input
+          id="ws-url"
           type="text"
           value={wsUrl}
           onChange={(e) => onWsUrl(e.target.value)}
@@ -74,20 +78,29 @@ export default function ControlPanel({
           disabled={wsConnected}
         />
         {wsConnected ? (
-          <button onClick={onWsDisconnect}>切断</button>
+          <button type="button" onClick={onWsDisconnect}>
+            切断
+          </button>
         ) : (
-          <button className="primary" onClick={onWsConnect} disabled={wsUrl.trim() === ''}>
+          <button
+            type="button"
+            className="primary"
+            onClick={onWsConnect}
+            disabled={wsUrl.trim() === ''}
+          >
             接続
           </button>
         )}
       </div>
       <p className="hint">
-        未接続の間はブラウザ内ログのみ (LoggingEdgeClient 相当)。https 配信ページからは
-        ws:// が塞がれるため、localhost 配信で使うこと。
+        未接続の間はブラウザ内ログのみ (LoggingEdgeClient 相当)。https
+        配信ページからは ws:// が塞がれるため、localhost 配信で使うこと。
       </p>
 
       <div className="row">
-        <button onClick={onClearCache}>モデルキャッシュ削除 (~590MB)</button>
+        <button type="button" onClick={onClearCache}>
+          モデルキャッシュ削除 (~590MB)
+        </button>
         {cacheNote && <span className="hint">{cacheNote}</span>}
       </div>
     </div>

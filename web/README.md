@@ -56,8 +56,12 @@ Pi と繋ぐ実運用は localhost 配信で行うこと (下記)。
 ## テスト
 
 ```bash
+pnpm lint             # Biome (lint + format チェック; 自動修正は pnpm lint:fix)
+pnpm typecheck        # tsc --noEmit
 pnpm test             # vitest (前処理 / fp16 / coalesce+pace / トークナイザ構造)
 ```
+
+CI (`.github/workflows/ci-web.yml`) は lint → typecheck → test → build を実行する。
 
 CLIP トークナイザの完全ゴールデン照合と ONNX 出力の PyTorch 参照一致は
 Phase 2/F と同じく GPU 環境の参照実装側で行う。

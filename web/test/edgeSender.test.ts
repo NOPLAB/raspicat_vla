@@ -4,16 +4,18 @@ import { ActionChunk } from '@/lib/actionChunk';
 import { OmniVlaConfig } from '@/lib/config';
 import {
   CoalescingSender,
-  LoggingEdgeClient,
-  floatToHalf,
-  packFp16,
   type EdgeActionClient,
+  floatToHalf,
+  LoggingEdgeClient,
+  packFp16,
   type SendMeta,
 } from '@/lib/edgeSender';
 
 function chunkOf(fill: number): ActionChunk {
   return new ActionChunk(
-    new Float32Array(OmniVlaConfig.lenTrajPred * OmniVlaConfig.actionDim).fill(fill),
+    new Float32Array(OmniVlaConfig.lenTrajPred * OmniVlaConfig.actionDim).fill(
+      fill,
+    ),
     true,
   );
 }

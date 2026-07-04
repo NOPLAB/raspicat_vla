@@ -10,7 +10,7 @@
  */
 
 import type { ActionChunk } from './actionChunk';
-import { packFp16, type EdgeActionClient, type SendMeta } from './edgeSender';
+import { type EdgeActionClient, packFp16, type SendMeta } from './edgeSender';
 
 interface AckMessage {
   type: 'ack';

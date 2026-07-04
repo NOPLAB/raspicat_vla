@@ -16,7 +16,7 @@ import type { InferenceSession, Tensor } from 'onnxruntime-web';
 
 import { withBase } from './baseUrl';
 import { OmniVlaConfig } from './config';
-import { fetchModelCached, type FetchProgress } from './modelStore';
+import { type FetchProgress, fetchModelCached } from './modelStore';
 
 // export 時に確定した 7 入力名 (docs/design/mobile_port_spec.md §3.1)。
 const MODEL_INPUT_NAMES = {
@@ -94,7 +94,9 @@ export class OrtRunner {
       onProgress?.({ stage: 'omnivla_edge.onnx を取得中', fetch }),
     );
     if (modelBytes) {
-      onProgress?.({ stage: 'omnivla_edge.onnx セッションを構築中 (初回は時間がかかります)' });
+      onProgress?.({
+        stage: 'omnivla_edge.onnx セッションを構築中 (初回は時間がかかります)',
+      });
       this.model = await this.createSession(modelBytes);
     } else {
       this.lastError = `${MODEL_URL}: 取得失敗 (未配置?)`;
@@ -110,8 +112,11 @@ export class OrtRunner {
   }
 
   /** 事前判定した候補の順でセッション生成を試みる。EP は最初に成功したものに固定。 */
-  private async createSession(bytes: Uint8Array): Promise<InferenceSession | null> {
-    const ort = this.ort!;
+  private async createSession(
+    bytes: Uint8Array,
+  ): Promise<InferenceSession | null> {
+    const ort = this.ort;
+    if (!ort) return null;
     // 2 個目のセッションは 1 個目と同じ EP に揃える。
     const candidates: Ep[] = this.ep !== null ? [this.ep] : this.candidates;
 
@@ -137,7 +142,10 @@ export class OrtRunner {
    * CLIP トークン列 (長さ 77) を 512 次元特徴へ。eotIndex は EOT トークンの
    * 位置 (ArgMax の代替として ONNX に渡す)。未ロード時 null。
    */
-  async encodeText(tokens: Int32Array, eotIndex: number): Promise<Float32Array | null> {
+  async encodeText(
+    tokens: Int32Array,
+    eotIndex: number,
+  ): Promise<Float32Array | null> {
     const session = this.text;
     const ort = this.ort;
     if (!session || !ort) return null;
@@ -145,10 +153,16 @@ export class OrtRunner {
     const feeds: Record<string, Tensor> = {
       [TEXT_INPUT_NAME]: new ort.Tensor(
         'int64',
-        BigInt64Array.from(tokens as unknown as ArrayLike<number>, (t) => BigInt(t)),
+        BigInt64Array.from(tokens as unknown as ArrayLike<number>, (t) =>
+          BigInt(t),
+        ),
         [1, OmniVlaConfig.clipContextLength],
       ),
-      [EOT_INPUT_NAME]: new ort.Tensor('int64', BigInt64Array.of(BigInt(eotIndex)), [1]),
+      [EOT_INPUT_NAME]: new ort.Tensor(
+        'int64',
+        BigInt64Array.of(BigInt(eotIndex)),
+        [1],
+      ),
     };
     const outputs = await session.run(feeds);
     return toFloat32(outputs[session.outputNames[0]]);
@@ -175,25 +189,41 @@ export class OrtRunner {
     // (black96 / text 特徴) をそのまま包むと 2 回目の推論で壊れる。
     const f32 = (v: Float32Array) => new Float32Array(v);
     const feeds: Record<string, Tensor> = {
-      [MODEL_INPUT_NAMES.obsImages]: new ort.Tensor('float32', f32(args.obsImages), [
-        1,
-        3 * OmniVlaConfig.historyLen,
-        s,
-        s,
-      ]),
-      [MODEL_INPUT_NAMES.goalPose]: new ort.Tensor('float32', f32(args.goalPose), [1, 4]),
-      [MODEL_INPUT_NAMES.mapImages]: new ort.Tensor('float32', f32(args.mapImages), [1, 9, s, s]),
-      [MODEL_INPUT_NAMES.goalImage]: new ort.Tensor('float32', f32(args.goalImage), [1, 3, s, s]),
+      [MODEL_INPUT_NAMES.obsImages]: new ort.Tensor(
+        'float32',
+        f32(args.obsImages),
+        [1, 3 * OmniVlaConfig.historyLen, s, s],
+      ),
+      [MODEL_INPUT_NAMES.goalPose]: new ort.Tensor(
+        'float32',
+        f32(args.goalPose),
+        [1, 4],
+      ),
+      [MODEL_INPUT_NAMES.mapImages]: new ort.Tensor(
+        'float32',
+        f32(args.mapImages),
+        [1, 9, s, s],
+      ),
+      [MODEL_INPUT_NAMES.goalImage]: new ort.Tensor(
+        'float32',
+        f32(args.goalImage),
+        [1, 3, s, s],
+      ),
       [MODEL_INPUT_NAMES.modalityId]: new ort.Tensor(
         'int64',
         BigInt64Array.of(BigInt(args.modalityId)),
         [1],
       ),
-      [MODEL_INPUT_NAMES.featText]: new ort.Tensor('float32', f32(args.featText), [
-        1,
-        OmniVlaConfig.clipTextDim,
-      ]),
-      [MODEL_INPUT_NAMES.curLarge]: new ort.Tensor('float32', f32(args.curLarge), [1, 3, l, l]),
+      [MODEL_INPUT_NAMES.featText]: new ort.Tensor(
+        'float32',
+        f32(args.featText),
+        [1, OmniVlaConfig.clipTextDim],
+      ),
+      [MODEL_INPUT_NAMES.curLarge]: new ort.Tensor(
+        'float32',
+        f32(args.curLarge),
+        [1, 3, l, l],
+      ),
     };
     // 出力先頭が action_pred (1, 8, 4) 想定 (ort_runner.dart と同じ)。
     const outputs = await session.run(feeds);
