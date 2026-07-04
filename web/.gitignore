@@ -8,6 +8,8 @@ next-env.d.ts
 # 実行時アセット (git 管理外)
 # - public/ort/   : postinstall が onnxruntime-web の dist からコピー
 # - モデル/語彙    : `pnpm sync-assets` が app/assets からコピー
+# - manifest.json : ビルド時に gen_model_manifest.mjs が生成 (進捗率の分母)
 public/ort/
 public/models/*.onnx
+public/models/manifest.json
 public/clip/*.gz

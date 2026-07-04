@@ -276,8 +276,8 @@ export default function VlaApp() {
     });
   }, []);
 
-  // content-encoding 付き配信では total が取れない (modelStore 参照) ので、
-  // その間は取得済み MB を出す。丸め誤差で 100 を超えないようクランプ。
+  // 総量は content-length か manifest.json 由来 (modelStore 参照)。どちらも
+  // 無いときは取得済み MB のみ出す。丸め誤差で 100 を超えないようクランプ。
   const progressPct = initProgress?.fetch?.total
     ? Math.min(
         100,
@@ -326,7 +326,7 @@ export default function VlaApp() {
                 <div>
                   {initProgress.stage}
                   {progressPct !== null
-                    ? ` ${progressPct}%`
+                    ? ` ${progressPct}% (${progressMb}MB)`
                     : progressMb !== null
                       ? ` ${progressMb}MB`
                       : ''}

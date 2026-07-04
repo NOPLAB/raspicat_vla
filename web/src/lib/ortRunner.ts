@@ -31,6 +31,9 @@ const MODEL_INPUT_NAMES = {
 
 const MODEL_URL = withBase('/models/omnivla_edge.onnx');
 const TEXT_URL = withBase('/models/clip_text.onnx');
+// ビルド時生成 (scripts/gen_model_manifest.mjs)。gzip 配信で content-length
+// から総量が取れないときの進捗分母。
+const MANIFEST_URL = withBase('/models/manifest.json');
 const TEXT_INPUT_NAME = 'tokens';
 const EOT_INPUT_NAME = 'eot_index';
 
@@ -90,8 +93,11 @@ export class OrtRunner {
       ort.env.wasm.proxy = true;
     }
 
-    const modelBytes = await fetchModelCached(MODEL_URL, (fetch) =>
-      onProgress?.({ stage: 'omnivla_edge.onnx を取得中', fetch }),
+    const sizes = await fetchModelSizes();
+    const modelBytes = await fetchModelCached(
+      MODEL_URL,
+      (fetch) => onProgress?.({ stage: 'omnivla_edge.onnx を取得中', fetch }),
+      sizes['omnivla_edge.onnx'],
     );
     if (modelBytes) {
       onProgress?.({
@@ -102,8 +108,10 @@ export class OrtRunner {
       this.lastError = `${MODEL_URL}: 取得失敗 (未配置?)`;
     }
 
-    const textBytes = await fetchModelCached(TEXT_URL, (fetch) =>
-      onProgress?.({ stage: 'clip_text.onnx を取得中', fetch }),
+    const textBytes = await fetchModelCached(
+      TEXT_URL,
+      (fetch) => onProgress?.({ stage: 'clip_text.onnx を取得中', fetch }),
+      sizes['clip_text.onnx'],
     );
     if (textBytes) {
       onProgress?.({ stage: 'clip_text.onnx セッションを構築中' });
@@ -235,6 +243,23 @@ export class OrtRunner {
     await this.text?.release();
     this.model = null;
     this.text = null;
+  }
+}
+
+/** manifest.json (ファイル名 -> 展開後バイト数) を取得。無ければ空。 */
+async function fetchModelSizes(): Promise<Record<string, number>> {
+  try {
+    const resp = await fetch(MANIFEST_URL);
+    if (!resp.ok) return {};
+    const json: unknown = await resp.json();
+    if (typeof json !== 'object' || json === null) return {};
+    const sizes: Record<string, number> = {};
+    for (const [k, v] of Object.entries(json)) {
+      if (typeof v === 'number' && v > 0) sizes[k] = v;
+    }
+    return sizes;
+  } catch {
+    return {};
   }
 }
 

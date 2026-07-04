@@ -24,10 +24,14 @@ function cacheAvailable(): boolean {
 /**
  * url を取得して Uint8Array を返す。404 やネットワーク失敗は null
  * (呼び出し側がダミー軌道へフォールバック)。
+ *
+ * expectedTotal は展開後の総バイト数 (manifest.json 由来)。応答ヘッダから
+ * 総量が取れないときの進捗分母に使う。
  */
 export async function fetchModelCached(
   url: string,
   onProgress?: (p: FetchProgress) => void,
+  expectedTotal?: number,
 ): Promise<Uint8Array | null> {
   if (cacheAvailable()) {
     try {
@@ -57,12 +61,13 @@ export async function fetchModelCached(
 
   // content-encoding (gzip 等) 付き応答では content-length は圧縮後サイズで、
   // reader が返す展開後バイト数と食い違い進捗が 100% を超える (GitHub Pages が
-  // これに該当)。その場合は total 不明として扱う。
+  // これに該当)。その場合は manifest 由来の展開後サイズを分母にする。
   const encoding = resp.headers.get('content-encoding');
-  const total =
+  const headerTotal =
     !encoding || encoding === 'identity'
       ? Number(resp.headers.get('content-length')) || null
       : null;
+  const total = headerTotal ?? expectedTotal ?? null;
   const reader = resp.body.getReader();
   const chunks: Uint8Array[] = [];
   let loaded = 0;
