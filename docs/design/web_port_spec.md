@@ -38,7 +38,9 @@ Pi 側受け口は `edge_action_ws_node.py` — mobile_port_spec Phase 4 の gRP
 - リサイズは cv2.INTER_AREA 相当の面積平均を TS で自前実装
   (`preprocessing.ts`)。canvas `drawImage` はブラウザ依存で数値が揺れるため不使用。
 - モデル (`public/models/*.onnx`, 計 ~590MB) と CLIP 語彙は git 管理外。
-  `pnpm sync-assets` で `app/assets/` からコピー。初回取得後は Cache Storage に保存。
+  ローカルは `pnpm sync-assets` で `app/assets/` からコピー、GitHub Pages は
+  deploy-pages workflow が GitHub Release `models-v1` のアセットから配置する。
+  初回取得後は Cache Storage に保存。
 - ONNX 未配置なら Flutter 版と同じダミー弧軌道 (琥珀色) にフォールバック。
 - EP: `navigator.gpu` があれば `webgpu`、なければ `wasm` (このとき
   `ort.env.wasm.proxy = true` で worker 実行)。int64 入力は `BigInt64Array`。

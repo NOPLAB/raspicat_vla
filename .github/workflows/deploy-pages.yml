@@ -1,11 +1,13 @@
 # web/ (raspicat-vla-web) を GitHub Pages へデプロイする。
 #
 # 注意:
-# - ONNX モデル (~590MB) と CLIP 語彙は git 管理外なので、Pages 上のサイトは
-#   **ダミー軌道モード** で動く (web/README.md 参照)。実推論はローカルで
-#   `pnpm sync-assets` してから使う。
+# - ONNX モデル (~590MB) と CLIP 語彙は git 管理外。ビルド時に GitHub Release
+#   `models-v1` のアセットから public/ へ配置する (モデル更新は
+#   `gh release upload models-v1 <files> --clobber` して再実行)。release が
+#   取得できない場合はダミー軌道モードのままデプロイする。
 # - Pages は https 配信のため、Pi への ws:// 接続は mixed content で塞がれる。
-#   デモ/UI 確認用途 (実運用は localhost 配信、docs/design/web_port_spec.md §4)。
+#   ブラウザ内推論のデモ用途 (Pi 併用の実運用は localhost 配信、
+#   docs/design/web_port_spec.md §4)。
 name: deploy-pages
 
 on:
@@ -54,6 +56,18 @@ jobs:
       - name: Test
         working-directory: web
         run: pnpm test
+
+      - name: Download ONNX models (release models-v1 -> public/)
+        working-directory: web
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release download models-v1 --repo "$GITHUB_REPOSITORY" --pattern '*.onnx' --dir public/models &&
+             gh release download models-v1 --repo "$GITHUB_REPOSITORY" --pattern '*.txt.gz' --dir public/clip; then
+            ls -lh public/models public/clip
+          else
+            echo "::warning::models-v1 release を取得できません — ダミー軌道モードでデプロイします"
+          fi
 
       - name: Build (SSG, サブパス /<repo> 配信)
         working-directory: web

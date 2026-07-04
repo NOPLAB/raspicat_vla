@@ -26,6 +26,22 @@ pnpm build            # out/ に完全静的サイトを出力
 pnpm preview          # out/ をローカル配信
 ```
 
+サブパス配信 (GitHub Pages 等) は `NEXT_PUBLIC_BASE_PATH=/repo-name pnpm build`。
+
+## GitHub Pages デプロイ
+
+`.github/workflows/deploy-pages.yml` が main への `web/**` push で自動デプロイする。
+モデルは git ではなく **GitHub Release `models-v1` のアセット**からビルド時に
+`public/` へ配置される。モデルを更新したら:
+
+```bash
+gh release upload models-v1 app/assets/models/*.onnx app/assets/clip/*.gz --clobber
+gh workflow run deploy-pages.yml
+```
+
+Pages は https 配信のため Pi への `ws://` 接続は塞がれる (ブラウザ内推論のデモ用)。
+Pi と繋ぐ実運用は localhost 配信で行うこと (下記)。
+
 ## 動作要件と注意
 
 - **WebGPU**: Chrome/Edge 113+ (chrome://gpu で確認)。無ければ wasm に自動フォールバック
