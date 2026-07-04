@@ -12,7 +12,7 @@ engine (`omnivla_edge_engine.py`) は OpenAI CLIP の `encode_text` を **正規
 入力 tokens (1,77) int64, eot_index (1,) int64 -> 出力 feat (1,512) float32。
 
 使い方:
-    ~/omnivla-export-venv/bin/python scripts/export_clip_text_onnx.py \
+    ~/omnivla-export-venv/bin/python app/scripts/export_clip_text_onnx.py \
         --out app/assets/models/clip_text.onnx
 """
 from __future__ import annotations

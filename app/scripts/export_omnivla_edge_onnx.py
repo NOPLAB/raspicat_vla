@@ -12,7 +12,7 @@
 入力名は app 側 `lib/src/inference/ort_runner.dart` の _modelInputNames と一致させる。
 
 使い方:
-    ~/omnivla-export-venv/bin/python scripts/export_omnivla_edge_onnx.py \
+    ~/omnivla-export-venv/bin/python app/scripts/export_omnivla_edge_onnx.py \
         --weights models/omnivla-edge/omnivla-edge.pth \
         --out app/assets/models/omnivla_edge.onnx
 """

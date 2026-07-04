@@ -170,7 +170,7 @@ message ControlAck {
 | `ui/*` | カメラプレビュー・ゴール入力・パス可視化 | — |
 
 ### 次アクション
-1. **Phase 1**: GPU 環境で ONNX export スクリプトを作る (`scripts/export_omnivla_edge_onnx.py` 等)。`get_device()` 依存の除去を含む。
+1. **Phase 1**: GPU 環境で ONNX export スクリプトを作る (`app/scripts/export_omnivla_edge_onnx.py` 等)。`get_device()` 依存の除去を含む。
 2. **Phase 2**: CLIP 語彙を `app/assets/clip/` に配置し、`ClipTokenizer` を Python 参照とゴールデン一致。
 3. **Phase 4**: `edge_action.proto` から Dart/Python stub 生成 → Pi server と `GrpcEdgeClient` 実装。
 ```

@@ -9,7 +9,7 @@ fp16 (onnxconverter-common) は onnx 1.22 で Range/Cast まわりが壊れる�
 入出力は float32 のままなのでアプリは無改変。
 
 使い方:
-    ~/omnivla-export-venv/bin/python scripts/quantize_onnx.py \
+    ~/omnivla-export-venv/bin/python app/scripts/quantize_onnx.py \
         app/assets/models/omnivla_edge.onnx app/assets/models/clip_text.onnx
 """
 from __future__ import annotations
