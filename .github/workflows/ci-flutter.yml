@@ -1,0 +1,59 @@
+# app/ (Flutter スマホアプリ) の CI。フォーマット・静的解析・ユニットテストのみで、
+# APK/IPA のビルドは行わない (署名やモデルアセットが必要なため)。
+#
+# 注意:
+# - assets/{models,clip}/ の ONNX モデルは git 管理外だが、pubspec はディレクトリ
+#   ごと宣言しているので README だけでもテストは通る (欠けている場合はアプリが
+#   ダミー軌道にフォールバックする設計)。
+# - lib/src/grpc/gen/ は scripts/gen_proto.sh が生成するコミット済みスタブ。
+#   フォーマットチェックの対象外とする。
+name: ci-flutter
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'proto/edge_action.proto'
+      - '.github/workflows/ci-flutter.yml'
+  pull_request:
+    paths:
+      - 'app/**'
+      - 'proto/edge_action.proto'
+      - '.github/workflows/ci-flutter.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-flutter-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Pub get
+        run: flutter pub get
+
+      - name: Format check (生成コードを除く)
+        run: |
+          git ls-files -z '*.dart' ':!lib/src/grpc/gen' |
+            xargs -0 dart format --output=none --set-exit-if-changed
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
