@@ -56,7 +56,12 @@ services:
       - ${VLA_REPO_ROOT:-..}:/workspace
       - ${VLA_HF_CACHE:-~/.cache/huggingface}:/root/.cache/huggingface
     environment:
-      PYTHONPATH: /workspace/src/raspicat_vla_proto:/workspace/src/raspicat_vla_remote:/workspace/src/raspicat_vla_core
+      # NOTE: this REPLACES the image's ENV PYTHONPATH (compose does not merge),
+      # so the model images' vendored sources must be re-listed here. Only the
+      # dirs baked into the selected image exist (omnivla: /opt/OmniVLA,
+      # asyncvla: /opt/AsyncVLA + /opt/MBRA/train, movla: /opt/movla/src);
+      # Python silently skips the absent ones, so one list serves every image.
+      PYTHONPATH: /workspace/src/raspicat_vla_proto:/workspace/src/raspicat_vla_remote:/workspace/src/raspicat_vla_core:/opt/OmniVLA:/opt/AsyncVLA:/opt/MBRA/train:/opt/movla/src
     command: >
       python3 -m raspicat_vla_remote.server_main
       --backend ${VLA_BACKEND:-dummy}

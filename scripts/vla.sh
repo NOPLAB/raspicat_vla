@@ -8,9 +8,9 @@
 # `docker compose up`.
 #
 # Subcommands:
-#   build TARGET            asyncvla | omnivla | test | real | sim | --all
+#   build TARGET            asyncvla | omnivla | movla | test | real | sim | --all
 #   run MODEL --mode MODE [OPTS]
-#                           MODEL = asyncvla | omnivla | omnivla_edge
+#                           MODEL = asyncvla | omnivla | omnivla_edge | movla
 #                                   | omnivla_edge_mobile (phone infers; Pi receives)
 #                           MODE  = remote {--cpu|--gpu} [--host BIND[:PORT]]
 #                                   edge --host HOST[:PORT]
@@ -50,6 +50,9 @@ declare -A IMAGES=(
     # omnivla_edge (Path 3) reuses the OmniVLA remote image (it adds CLIP +
     # efficientnet); the remote backend just loads a different checkpoint.
     [omnivla_edge]="raspicat-vla-omnivla"
+    # movla (external/movla): in-house LFM2.5-VL Stage A policy. No Jetson
+    # variant yet (needs an aarch64 torch-2.12 wheel story first).
+    [movla]="raspicat-vla-movla"
     [asyncvla-jetson]="raspicat-vla-asyncvla-jetson"
     [omnivla-jetson]="raspicat-vla-omnivla-jetson"
     [omnivla_edge-jetson]="raspicat-vla-omnivla-jetson"
@@ -60,6 +63,7 @@ declare -A IMAGES=(
 declare -A DOCKERFILES=(
     [asyncvla]="docker/Dockerfile.asyncvla"
     [omnivla]="docker/Dockerfile.omnivla"
+    [movla]="docker/Dockerfile.movla"
     [asyncvla-jetson]="docker/Dockerfile.asyncvla.jetson"
     [omnivla-jetson]="docker/Dockerfile.omnivla.jetson"
     [test]="docker/Dockerfile.test"
@@ -70,12 +74,15 @@ declare -A RESUME_STEP=(
     [asyncvla]=750000
     [omnivla]=120000
     [omnivla_edge]=0      # unused: omnivla-edge.pth is a bare state_dict
+    [movla]=0             # unused: checkpoint.pt carries its own expert_cfg
 )
 declare -A WEIGHTS_DIR=(
     [asyncvla]="/workspace/models/AsyncVLA_release"
     [omnivla]="/workspace/models/omnivla-original"
     # For omnivla_edge --vla-path is the .pth weights file, not a checkpoint dir.
     [omnivla_edge]="/workspace/models/omnivla-edge/omnivla-edge.pth"
+    # movla: dir with checkpoint.pt + normalizer.json (scripts/download_movla_checkpoint.sh)
+    [movla]="/workspace/models/movla/stage_a_v2"
 )
 
 usage() {
@@ -84,10 +91,10 @@ Usage: vla.sh COMMAND [ARGS]
 
 Commands:
   build TARGET            Build a Docker image
-    TARGET = asyncvla | omnivla | test | real | sim | --all
+    TARGET = asyncvla | omnivla | movla | test | real | sim | --all
              asyncvla-jetson | omnivla-jetson   (ARM64 / Jetson AGX Orin)
   run MODEL --mode MODE [OPTS]   Run a configuration
-    MODEL = asyncvla | omnivla | omnivla_edge | omnivla_edge_mobile
+    MODEL = asyncvla | omnivla | omnivla_edge | omnivla_edge_mobile | movla
     MODE (selected with --mode MODE):
       remote {--cpu|--gpu} [--host BIND[:PORT]]
                                     Host the cloud-side gRPC server here.
@@ -153,6 +160,15 @@ Commands:
     light path-only adapter (adapter_kind=omnivla, no torch). Path 2's
     --mode edge-local runs the whole thing on one CUDA box instead.
 
+    movla (external/movla — in-house LFM2.5-VL Stage A policy): same remote
+    split as omnivla_edge Path 3 — the movla image runs the policy (remote |
+    cmd_vel here; CPU works, GPU faster) and streams metre-scaled waypoints;
+    the edge side uses the path-only 'omnivla' adapter automatically. Weights:
+    models/movla/<run>/ via scripts/download_movla_checkpoint.sh (default run
+    stage_a_v2). The Stage A policy is language-only; goals should use the
+    trained instruction templates ("go straight ahead" / "turn left ahead" /
+    "turn right ahead").
+
     omnivla_edge_mobile (mobile port — "phone infers, Pi controls"): the
     smartphone app (app/) does camera capture + on-device OmniVLA-edge
     inference and streams action chunks here over gRPC
@@ -187,6 +203,8 @@ Examples:
   vla.sh run omnivla_edge --mode edge-local               # Path 2, standalone on-edge policy (GPU)
   vla.sh run omnivla_edge --mode remote --gpu             # Path 3, OmniVLA-edge server (Jetson)
   vla.sh run omnivla_edge --mode edge --host 192.168.1.2  # Path 3, Pi edge -> Jetson server
+  vla.sh run movla --mode cmd_vel --cpu                   # in-house movla policy, all local
+  vla.sh run movla --mode remote --gpu                    # movla server on a GPU box
   vla.sh run omnivla_edge_mobile --mode cmd_vel           # phone infers -> this host follows (no motors)
   vla.sh run omnivla_edge_mobile --mode cmd_vel --host :50062  # custom listen port
   vla.sh test                                              # full pytest suite
@@ -365,14 +383,14 @@ cmd_build() {
                 all_targets=(asyncvla-jetson omnivla-jetson test real)
                 warn "Jetson: skipping 'sim' from --all (osrf desktop-full has no arm64 image)."
             else
-                all_targets=(asyncvla omnivla test real sim)
+                all_targets=(asyncvla omnivla movla test real sim)
             fi
             for t in "${all_targets[@]}"; do
                 build_one "$t" || rc=1
             done
             return $rc
             ;;
-        asyncvla|omnivla|asyncvla-jetson|omnivla-jetson|test|real|sim)
+        asyncvla|omnivla|movla|asyncvla-jetson|omnivla-jetson|test|real|sim)
             build_one "$target"
             ;;
         '')
@@ -434,7 +452,14 @@ export_edge_image() {
 # every other model's edge adapter matches the model name.
 edge_adapter_for() {
     local model=$1
-    if [[ $model == omnivla_edge ]]; then printf 'omnivla\n'; else printf '%s\n' "$model"; fi
+    # omnivla_edge (Path 3) and movla both run the policy on the remote box and
+    # stream metre-scaled (x, y, cos, sin) waypoints, so the Pi uses the light
+    # path-only 'omnivla' adapter; every other model's edge adapter matches the
+    # model name.
+    case $model in
+        omnivla_edge|movla) printf 'omnivla\n' ;;
+        *)                  printf '%s\n' "$model" ;;
+    esac
 }
 
 run_remote() {
@@ -622,9 +647,9 @@ run_edge_local() {
 cmd_run() {
     local model=${1:-}
     case $model in
-        asyncvla|omnivla|omnivla_edge|omnivla_edge_mobile) ;;
+        asyncvla|omnivla|omnivla_edge|omnivla_edge_mobile|movla) ;;
         '')
-            err "run: missing model (asyncvla|omnivla|omnivla_edge|omnivla_edge_mobile)"; usage; return 1 ;;
+            err "run: missing model (asyncvla|omnivla|omnivla_edge|omnivla_edge_mobile|movla)"; usage; return 1 ;;
         *)
             err "run: unknown model '$model'"; usage; return 1 ;;
     esac

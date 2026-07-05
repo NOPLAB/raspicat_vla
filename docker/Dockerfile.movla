@@ -1,0 +1,52 @@
+# Dockerfile for the movla cloud-side gRPC server (--backend movla).
+#
+# Hosts the in-house movla Stage A policy (external/movla): frozen
+# LFM2.5-VL-1.6B backbone + flow matching action expert. The stack is much
+# newer than the OmniVLA/AsyncVLA images (Python 3.12 / torch 2.12 /
+# transformers 5.12 — movla's pyproject.toml is the source of truth), so it
+# gets its own image instead of piggybacking on Dockerfile.omnivla.
+#
+# The default torch build is CUDA 13 (matches movla's cu130 training extra);
+# the wheels bundle the CUDA runtime and also run fine on CPU-only hosts.
+# For a slim CPU-only image:
+#   docker build -f docker/Dockerfile.movla --build-arg TORCH_INDEX=cpu \
+#     -t raspicat-vla-movla .
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+SHELL ["/bin/bash", "-c"]
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3.12 python3.12-venv python3-pip \
+        git curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Ubuntu 24.04 is PEP 668 (externally managed); use a venv.
+RUN python3.12 -m venv /opt/venv
+ENV PATH=/opt/venv/bin:$PATH
+
+ARG TORCH_INDEX=cu130
+RUN pip install --no-cache-dir torch torchvision \
+        --index-url "https://download.pytorch.org/whl/${TORCH_INDEX}"
+
+# Inference deps per external/movla/pyproject.toml (training-only extras like
+# wandb / rosbags / h5py are intentionally omitted) + the gRPC server runtime.
+RUN pip install --no-cache-dir \
+        'transformers>=5.12.1' \
+        'accelerate>=1.14.0' \
+        'peft>=0.19.1' \
+        'numpy>=2.5.0' \
+        'pillow>=12.3.0' \
+        'PyYAML>=6.0.3' \
+        'grpcio>=1.50' \
+        'protobuf>=4.21'
+
+# Vendor the movla source (movla_v1 + movla_libs) on PYTHONPATH — same
+# treatment as prismatic in Dockerfile.omnivla/.asyncvla. compose.yaml re-lists
+# this path because its `environment: PYTHONPATH:` replaces this ENV.
+COPY external/movla/src /opt/movla/src
+ENV PYTHONPATH=/opt/movla/src
+
+WORKDIR /workspace

@@ -14,8 +14,8 @@ A newer, **separate** effort (`app/`, `docs/design/mobile_port_spec.md`) ports O
 
 - `src/raspicat_vla_*` — six colcon packages we own. `raspicat_vla_core` is the ROS-free OmniVLA-edge inference core (`OmniVLAEdgeEngine` + `models/`) shared by edge (Path 2) and remote (Path 3); keep it importable without rclpy/torch at module level — heavy deps are lazy-imported.
 - `src/raspicat_{ros,description,sim,slam_navigation}` — rt-net source packages, **not in git**. They are imported by vcstool from `raspicat.repos` and `.gitignore`d. Re-run `vcs import src < raspicat.repos` after editing the manifest.
-- `external/` — research submodules (`AsyncVLA`, `OmniVLA`, `MBRA`, `raspicat-sim-docker`). Reference code; **not built by colcon**. Vendored into the Docker images that need them (see `Dockerfile.real`/`.asyncvla`/`.omnivla`).
-- `models/` — downloaded VLA weights. Gitignored, populated by `scripts/download_{asyncvla,omnivla,omnivla_edge}_checkpoints.sh`.
+- `external/` — research submodules (`AsyncVLA`, `OmniVLA`, `MBRA`, `raspicat-sim-docker`, `movla`). Reference code; **not built by colcon**. Vendored into the Docker images that need them (see `Dockerfile.real`/`.asyncvla`/`.omnivla`/`.movla`). `movla` (github.com/NOPLAB/movla) is the in-house LFM2.5-VL Stage A policy served by `--backend movla`; keep its pin state_dict-compatible with the checkpoint being served (`ActionExpert`/`StateEncoder` keys are the contract — the upstream repo promises v1 checkpoint compatibility across refactors).
+- `models/` — downloaded VLA weights. Gitignored, populated by `scripts/download_{asyncvla,omnivla,omnivla_edge}_checkpoints.sh`. movla checkpoints are **not on HF**: `scripts/download_movla_checkpoint.sh` rsyncs `runs/<run>/` from the training box (default `nop@pve1ubuntu`) into `models/movla/<run>/`.
 - `proto/raspicat_vla.proto` — source of truth for the edge↔remote gRPC interface. Generated stubs live at `src/raspicat_vla_proto/raspicat_vla_proto/raspicat_vla_pb2*.py` and are also gitignored — regenerate with `scripts/gen_proto.sh`.
 - `proto/edge_action.proto` — **independent** phone→Pi interface for the mobile port (`EdgeActionService.StreamActions`, phone = client, Pi = server). `scripts/gen_proto.sh` generates the Python stubs (gitignored, next to the raspicat_vla ones) **and** the Dart stubs at `app/lib/src/grpc/gen/` (those are committed — the Flutter build has no protoc step; regeneration needs `dart pub global activate protoc_plugin`). The Pi-side server is `edge_action_grpc_node.py`, the gRPC twin of `edge_action_ws_node.py` — the two must keep the same slot+watchdog design (receive thread only fills a locked slot; a ROS timer publishes). Run it via `vla.sh run omnivla_edge_mobile --mode cmd_vel`.
 - `app/` — Flutter (Android/iOS) smartphone app for on-device OmniVLA-edge inference. **Not built by colcon**; separate Dart/Flutter toolchain. `app/assets/{models,clip}/` hold the ONNX weights + CLIP BPE vocab (gitignored, see their READMEs); absent → the app runs but falls back to dummy trajectories / zeroed text features.
@@ -35,6 +35,10 @@ A newer, **separate** effort (`app/`, `docs/design/mobile_port_spec.md`) ports O
 **Embedding cache and decoupled rates.** Edge publishes observations slower than it ticks the action loop; the latest embedding is held in `EmbeddingCache` with a soft max-age and a hard timeout. Preserve the property that the action tick consumes whatever is currently in cache rather than blocking on a fresh embedding. Relatedly, the gRPC client (`grpc_client.py`) **coalesces and paces** outbound observations — it keeps only the newest pending observation and rate-limits sends so a slow remote can't back-pressure and stall the control loop. Preserve this when touching the send path.
 
 **Cloud / edge symmetry for AsyncVLA.** Both the cloud backend (`backends/asyncvla.py`) and the edge adapter (`adapters/asyncvla.py`) need `external/MBRA` on `PYTHONPATH` (transitive dep `vint_train.models.vint.self_attention`) and the prismatic shim from `external/AsyncVLA`. Dockerfile.asyncvla / Dockerfile.real wire these up.
+
+**compose.yaml's `PYTHONPATH` replaces the image ENV.** The remote service's `environment: PYTHONPATH:` must re-list every vendored `/opt/...` source path the model images bake in (`/opt/OmniVLA`, `/opt/AsyncVLA`, `/opt/MBRA/train`, `/opt/movla/src`) — compose does not merge env vars, and dropping one silently breaks that backend's imports at run time (Python skips absent dirs, so one combined list serves all images). When adding a model image with vendored source, extend that list, not just the Dockerfile ENV.
+
+**movla serves waypoints, not embeddings.** `--backend movla` (`backends/movla.py`) reuses the OmniVLA-edge Path 3 wire shape — metre-scaled `(horizon, 4)` `(x, y, cos, sin)` — so the edge runs the path-only `omnivla` adapter (see `edge_adapter_for` in vla.sh). Serving-time gotchas live in the backend docstring: the remote has no odometry, so history/velocity are pinned to the stationary padding the model saw at trajectory starts, and Stage A knows only the three template instructions; the raspicat embodiment is absent from the normalizer stats, so it serves as `turtlebot2` by default.
 
 ## Build & run
 
@@ -91,6 +95,7 @@ scripts/gen_proto.sh   # writes src/raspicat_vla_proto/raspicat_vla_proto/{raspi
 scripts/download_asyncvla_checkpoints.sh      # -> models/AsyncVLA_release/  (~15 GB)
 scripts/download_omnivla_checkpoints.sh       # -> models/omnivla-original/  (Path 1, cloud)
 scripts/download_omnivla_edge_checkpoints.sh  # -> models/omnivla-edge/      (Path 2, on-robot)
+scripts/download_movla_checkpoint.sh [RUN]    # -> models/movla/<RUN>/       (rsync, not HF; default stage_a_v2)
 ```
 
 Reuses `~/.cache/huggingface` so repeat runs are fast.

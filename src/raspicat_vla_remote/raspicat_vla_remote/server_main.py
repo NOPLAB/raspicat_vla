@@ -1,9 +1,11 @@
 """Entry point for the `vla_dummy_server` console script.
 
-Selects a backend (``--backend {dummy,asyncvla,omnivla,omnivla_edge}``) and hosts
-it via the generic :class:`VLAServer`. ``omnivla`` is Plan 2B Path 1 (cloud runs
-OmniVLA-original); ``omnivla_edge`` is Path 3 (a remote GPU box such as a Jetson
-runs the OmniVLA-edge policy and streams waypoints to the edge).
+Selects a backend (``--backend {dummy,asyncvla,omnivla,omnivla_edge,movla}``)
+and hosts it via the generic :class:`VLAServer`. ``omnivla`` is Plan 2B Path 1
+(cloud runs OmniVLA-original); ``omnivla_edge`` is Path 3 (a remote GPU box such
+as a Jetson runs the OmniVLA-edge policy and streams waypoints to the edge);
+``movla`` serves the in-house LFM2.5-VL Stage A policy (external/movla) the same
+waypoint-streaming way.
 """
 from __future__ import annotations
 
@@ -53,6 +55,23 @@ def _build_backend(args: argparse.Namespace):
             resume_step=args.resume_step,
             device=args.device,
         )
+    if args.backend == 'movla':
+        # movla (external/movla): LFM2.5-VL ベースの Stage A ポリシーをこの
+        # ボックスで走らせてウェイポイントを edge に流す。--vla-path は
+        # checkpoint.pt + normalizer.json を含むディレクトリ; --resume-step は未使用。
+        try:
+            from .backends.movla import MovlaBackend
+        except ImportError as exc:
+            raise SystemExit(
+                f'--backend movla not available ({exc}); '
+                'needs torch + transformers>=5.12 and movla_v1/movla_libs '
+                '(external/movla/src) on PYTHONPATH',
+            )
+        return MovlaBackend(
+            checkpoint_dir=args.vla_path,
+            device=args.device,
+            embodiment=args.embodiment,
+        )
     if args.backend == 'omnivla_edge':
         # Plan 2B Path 3: run the OmniVLA-edge policy remotely (e.g. on a Jetson)
         # and stream waypoints to a Raspberry Pi. --vla-path is the .pth weights
@@ -75,9 +94,10 @@ def _build_backend(args: argparse.Namespace):
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description='VLA gRPC server (dummy/asyncvla/omnivla/omnivla_edge)')
+        description='VLA gRPC server (dummy/asyncvla/omnivla/omnivla_edge/movla)')
     parser.add_argument('--backend', default='dummy',
-                        choices=['dummy', 'asyncvla', 'omnivla', 'omnivla_edge'])
+                        choices=['dummy', 'asyncvla', 'omnivla', 'omnivla_edge',
+                                 'movla'])
     parser.add_argument('--host', default='0.0.0.0')
     parser.add_argument('--port', type=int, default=50051)
     parser.add_argument('--log-level', default='INFO')
@@ -96,6 +116,9 @@ def main() -> None:
     parser.add_argument('--device', default='cuda:0')
     # OmniVLA-edge (Path 3) only. --vla-path doubles as the .pth weights file.
     parser.add_argument('--clip-type', default='ViT-B/32')
+    # movla only: 正規化統計とプロンプト/数値条件に使うエンボディメント id
+    # (normalizer.json のキーであること。raspicat は学習データに無い)。
+    parser.add_argument('--embodiment', default='turtlebot2')
 
     args = parser.parse_args()
 

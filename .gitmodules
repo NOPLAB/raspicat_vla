@@ -10,3 +10,6 @@
 [submodule "external/MBRA"]
 	path = external/MBRA
 	url = https://github.com/NHirose/Learning-to-Drive-Anywhere-with-MBRA
+[submodule "external/movla"]
+	path = external/movla
+	url = https://github.com/NOPLAB/movla.git
