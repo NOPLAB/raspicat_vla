@@ -1,96 +1,77 @@
-/// カメラを設定周期で連番 JPEG 保存するキャプチャ。
+/// AR セッションが出すカメラフレームを連番 JPEG で保存するキャプチャ。
 ///
-/// app/inference と同じく startImageStream で最新フレームだけ保持し、
-/// Timer.periodic (config.cameraPeriod) でその 1 枚を JPEG 化して
-/// SessionWriter へ渡す。crop/resize はせず生アスペクトで保存する。
+/// AR (ARKit/ARCore) が背面カメラを占有するため、フレームは `camera` プラグインでは
+/// なく AR から取り出す。JPEG エンコードと config.cameraHz への間引きはネイティブ側で
+/// 行い、ここでは受信したフレームを受信時刻 (共有 MonoClock) でスタンプして書き出す。
+/// crop/resize はせず生アスペクトで保存する (縮小はネイティブが中解像度化する範囲のみ)。
 library;
 
 import 'dart:async';
 
-import 'package:camera/camera.dart';
-import 'package:image/image.dart' as img;
+import 'package:flutter/widgets.dart';
 
 import '../config.dart';
 import '../session/mono_clock.dart';
 import '../session/session_writer.dart';
-import 'camera_image_utils.dart';
+import 'ar_session.dart';
 
-/// カメラプレビュー＋設定周期での JPEG 保存を担う。
+/// AR プレビュー＋フレームの連番 JPEG 保存を担う。
 class CameraCapture {
-  CameraCapture({required this.config, required this.clock});
+  CameraCapture({required this.ar, required this.config, required this.clock});
 
+  final ArSession ar;
   final LoggerConfig config;
   final MonoClock clock;
 
-  CameraController? _controller;
-  CameraImage? _latest;
-  Timer? _timer;
+  StreamSubscription<ArFrameSample>? _sub;
   SessionWriter? _writer;
-  bool _encoding = false; // 前フレームのエンコード中は次ティックをスキップ
+  bool _ready = false;
 
-  CameraController? get controller => _controller;
+  /// AR セッションが起動しプレビュー可能か。
+  bool get isReady => _ready;
 
-  /// カメラを初期化しプレビューを開始する (録画前でも表示できる)。
+  /// AR セッションを初期化しプレビューを開始する (録画前でも表示できる)。
+  /// 端末が AR 非対応なら [StateError] を投げる (このアプリは AR 必須)。
   Future<void> initialize() async {
-    final cameras = await availableCameras();
-    if (cameras.isEmpty) {
-      throw StateError('no camera available');
+    if (!await ar.isSupported()) {
+      throw StateError('この端末は AR (ARKit/ARCore) に対応していません');
     }
-    final back = cameras.firstWhere(
-      (c) => c.lensDirection == CameraLensDirection.back,
-      orElse: () => cameras.first,
+    await ar.start(
+      cameraHz: config.cameraHz,
+      poseHz: config.poseHz,
+      jpegQuality: config.jpegQuality,
     );
-    final controller = CameraController(
-      back,
-      // 中解像度フルフレーム方針。medium は端末により 480p〜720p。
-      ResolutionPreset.medium,
-      enableAudio: false,
-      imageFormatGroup: ImageFormatGroup.yuv420,
-    );
-    await controller.initialize();
-    await controller.startImageStream((image) => _latest = image);
-    _controller = controller;
+    _ready = true;
   }
 
-  /// このセッションへの JPEG 書き出しを開始する。
+  /// このセッションへの JPEG 書き出しを開始する。購読開始でネイティブが JPEG 化を始める。
   void startRecording(SessionWriter writer) {
     _writer = writer;
-    _timer = Timer.periodic(config.cameraPeriod, (_) => _tick());
+    _sub = ar.frames().listen((f) async {
+      final w = _writer;
+      if (w == null) return;
+      final tNs = clock.nowNs();
+      try {
+        await w.addFrame(f.jpeg, tNs, f.width, f.height);
+      } catch (_) {
+        // 1 フレームの書き出し失敗は無視して次へ (収集を止めない)。
+      }
+    });
   }
 
-  /// JPEG 書き出しを止める (プレビューは継続)。
-  void stopRecording() {
-    _timer?.cancel();
-    _timer = null;
+  /// JPEG 書き出しを止める (プレビューは継続)。購読解除でネイティブが JPEG 化を止める。
+  Future<void> stopRecording() async {
+    await _sub?.cancel();
+    _sub = null;
     _writer = null;
   }
 
-  Future<void> _tick() async {
-    final writer = _writer;
-    final frame = _latest;
-    if (writer == null || frame == null || _encoding) return;
-    _encoding = true;
-    final tNs = clock.nowNs();
-    try {
-      final rgb = cameraImageToRgb(frame);
-      final jpeg = img.encodeJpg(rgb, quality: config.jpegQuality);
-      await writer.addFrame(jpeg, tNs, rgb.width, rgb.height);
-    } catch (_) {
-      // 1 フレームのエンコード失敗は無視して次へ (収集を止めない)。
-    } finally {
-      _encoding = false;
-    }
-  }
+  /// ネイティブ AR プレビュー Widget。
+  Widget buildPreview() => ar.buildPreview();
 
   Future<void> dispose() async {
-    _timer?.cancel();
-    final c = _controller;
-    _controller = null;
-    if (c != null) {
-      try {
-        await c.stopImageStream();
-      } catch (_) {}
-      await c.dispose();
-    }
+    await stopRecording();
+    await ar.stop();
+    _ready = false;
   }
 }

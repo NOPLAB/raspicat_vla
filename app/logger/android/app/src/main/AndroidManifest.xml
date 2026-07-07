@@ -9,11 +9,15 @@
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28"/>
     <uses-feature android:name="android.hardware.camera.any" android:required="false"/>
+    <!-- AR 必須: ARCore 非対応端末は Play ストアの対象外にする (docs/design/logger_app_spec.md §8) -->
+    <uses-feature android:name="android.hardware.camera.ar" android:required="true"/>
 
     <application
         android:label="vla_logger"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        <!-- ARCore を必須指定 (Google Play Services for AR を自動要求) -->
+        <meta-data android:name="com.google.ar.core" android:value="required"/>
         <activity
             android:name=".MainActivity"
             android:exported="true"

@@ -20,6 +20,7 @@ void main() {
     );
 
     await w.addFrame(<int>[0xFF, 0xD8, 0xFF, 0xD9], clock.nowNs(), 640, 480);
+    w.addPose(clock.nowNs(), 1.0, 0.0, 0.5, 0, 0, 0, 1, 'normal');
     w.addImu(clock.nowNs(), 0, 0, 9.8, 0, 0, 0, 0, 0, 0);
     w.addGnss(clock.nowNs(), 35.0, 139.0, 10, 5, 0, 0);
     w.addLabel(
@@ -33,6 +34,7 @@ void main() {
     final dir = w.dir;
     expect(await File('${dir.path}/camera/frames/00000000.jpg').exists(), true);
     expect(await File('${dir.path}/camera/frames.csv').exists(), true);
+    expect(await File('${dir.path}/pose/pose.csv').exists(), true);
     expect(await File('${dir.path}/imu/imu.csv').exists(), true);
     expect(await File('${dir.path}/gnss/gnss.csv').exists(), true);
     expect(await File('${dir.path}/labels.jsonl').exists(), true);
@@ -40,6 +42,7 @@ void main() {
     final meta =
         jsonDecode(await File('${dir.path}/meta.json').readAsString()) as Map;
     expect(meta['frame_count'], 1);
+    expect(meta['pose_count'], 1);
     expect(meta['embodiment'], 'raspicat');
 
     await base.delete(recursive: true);

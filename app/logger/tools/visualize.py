@@ -2,9 +2,10 @@
 """vla_logger のセッションログをブラウザ GUI で可視化するツール。
 
 `docs/design/logger_app_spec.md` §3 の on-disk 契約
-(meta.json / camera/frames/*.jpg + frames.csv / imu/imu.csv /
-gnss/gnss.csv / audio/*.wav / labels.jsonl) をそのまま読み、
-カメラ・IMU・GNSS・音声・ラベルを共通の t_mono_ns 軸に並べて再生する。
+(meta.json / camera/frames/*.jpg + frames.csv / pose/pose.csv /
+imu/imu.csv / gnss/gnss.csv / audio/*.wav / labels.jsonl) をそのまま読み、
+カメラ・VIO 姿勢(軌跡)・IMU・GNSS・音声・ラベルを共通の t_mono_ns 軸に
+並べて再生する。
 
 依存は Python 標準ライブラリのみ (matplotlib 等は不要)。ローカル HTTP
 サーバをセッションディレクトリ直下に立て、埋め込みの単一 HTML ビューア
@@ -110,6 +111,7 @@ VIEWER_HTML = r"""<!doctype html>
     <span class="stat">CAM <b id="hCam" class="mono">0</b></span>
     <span class="stat">IMU <b id="hImu" class="mono">0</b></span>
     <span class="stat">GNSS <b id="hGnss" class="mono">0</b></span>
+    <span class="stat">POSE <b id="hPose" class="mono">0</b></span>
     <span class="stat">AUDIO <b id="hAud" class="mono">0</b></span>
     <span class="stat" style="margin-left:auto">vla_logger</span>
   </header>
@@ -141,6 +143,18 @@ VIEWER_HTML = r"""<!doctype html>
           <span class="k">lat, lon</span><span class="v" id="vLatLon">—</span>
           <span class="k">speed / bearing</span><span class="v" id="vSpeed">—</span>
           <span class="k">acc (m)</span><span class="v" id="vAccM">—</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="pane">
+      <h2>Trajectory (VIO)</h2>
+      <div class="body">
+        <canvas id="poseCanvas" height="220"></canvas>
+        <div class="kv mono" style="margin-top:8px">
+          <span class="k">x, z (m)</span><span class="v" id="vXZ">—</span>
+          <span class="k">y up (m)</span><span class="v" id="vY">—</span>
+          <span class="k">tracking</span><span class="v" id="vTrack">—</span>
         </div>
       </div>
     </div>
@@ -222,7 +236,7 @@ function idxAtOrBefore(times, t) {
 const state = {
   dur: 0, t: 0, playing: false, speed: 1, lastRAF: 0,
   frames: [], frameTimes: [], imu: [], imuTimes: [],
-  gnss: [], gnssTimes: [], labels: [], audio: [],
+  gnss: [], gnssTimes: [], pose: [], poseTimes: [], labels: [], audio: [],
 };
 
 function fmt(x, d = 3) { return (x == null || Number.isNaN(x)) ? "—" : x.toFixed(d); }
@@ -250,6 +264,11 @@ async function load() {
   } catch (e) { /* gnss 無しでも動く */ }
 
   try {
+    const p = parseCSV(await fetchText("pose/pose.csv"));
+    state.pose = p; state.poseTimes = p.map((r) => r.t_mono_ns / NS);
+  } catch (e) { /* pose 無しでも動く (旧セッション互換) */ }
+
+  try {
     const txt = await fetchText("labels.jsonl");
     state.labels = txt.trim().split(/\r?\n/).filter(Boolean).map(JSON.parse);
   } catch (e) { /* labels 無しでも動く */ }
@@ -260,6 +279,7 @@ async function load() {
     state.frameTimes.at(-1) || 0,
     state.imuTimes.at(-1) || 0,
     state.gnssTimes.at(-1) || 0,
+    state.poseTimes.at(-1) || 0,
   );
   state.dur = maxT || 1;
 
@@ -268,6 +288,7 @@ async function load() {
   $("hCam").textContent = state.frames.length;
   $("hImu").textContent = state.imu.length;
   $("hGnss").textContent = state.gnss.length;
+  $("hPose").textContent = state.pose.length;
   $("hAud").textContent = state.audio.length;
   $("lblLegend").textContent = state.labels.length + " 件";
   $("audLegend").textContent = state.audio.length + " 区間";
@@ -364,6 +385,54 @@ function drawGnss(t) {
   }
 }
 
+function drawTrajectory(t) {
+  const cv = $("poseCanvas");
+  const { ctx, w, h } = hidpiResize(cv, 220);
+  ctx.clearRect(0, 0, w, h);
+  ctx.strokeStyle = "#ddd"; ctx.strokeRect(.5, .5, w - 1, h - 1);
+  const p = state.pose;
+  if (!p.length) {
+    ctx.fillStyle = "#999"; ctx.font = "12px ui-monospace, monospace";
+    ctx.fillText("no VIO pose", 10, 20); return;
+  }
+  // world 座標は ty が重力(上)。上面図は水平面 (tx, tz) を等尺で描く。
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (const r of p) {
+    minX = Math.min(minX, r.tx); maxX = Math.max(maxX, r.tx);
+    minZ = Math.min(minZ, r.tz); maxZ = Math.max(maxZ, r.tz);
+  }
+  const m = 16;
+  const spanX = Math.max(maxX - minX, 1e-3);
+  const spanZ = Math.max(maxZ - minZ, 1e-3);
+  // アスペクト保持: x/z で共通スケール (軌跡形状を歪めない)。
+  const s = Math.min((w - 2 * m) / spanX, (h - 2 * m) / spanZ);
+  const cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2;
+  const X = (x) => w / 2 + (x - cx) * s;
+  // z は上向きを画面上方に (画面 y は下向きなので反転)。
+  const Y = (z) => h / 2 - (z - cz) * s;
+  // 経路
+  ctx.strokeStyle = "#111"; ctx.lineWidth = 1.5; ctx.beginPath();
+  p.forEach((r, i) => { const px = X(r.tx), py = Y(r.tz);
+    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py); });
+  ctx.stroke();
+  // 始点 (□) と終点方向の目印
+  ctx.fillStyle = "#999";
+  ctx.fillRect(X(p[0].tx) - 3, Y(p[0].tz) - 3, 6, 6);
+  // 現在位置 (時刻最近傍)
+  const i = idxAtOrBefore(state.poseTimes, t);
+  if (i >= 0) {
+    const r = p[i];
+    ctx.fillStyle = "#111"; ctx.beginPath();
+    ctx.arc(X(r.tx), Y(r.tz), 5, 0, 7); ctx.fill();
+    ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5; ctx.stroke();
+  }
+  // スケールバー (1 m)
+  ctx.strokeStyle = "#111"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(m, h - 8); ctx.lineTo(m + s, h - 8); ctx.stroke();
+  ctx.fillStyle = "#666"; ctx.font = "10px ui-monospace, monospace";
+  ctx.fillText("1 m", m + s + 4, h - 5);
+}
+
 function drawStaticTracks() {
   const trackL = $("trackLabel"), trackA = $("trackAudio");
   // 既存 seg を消す (cursor は残す)
@@ -422,6 +491,15 @@ function seek(t) {
     $("vAccM").textContent = fmt(r.acc, 1);
   }
 
+  // 姿勢 (VIO) 数値
+  const pi = idxAtOrBefore(state.poseTimes, t_);
+  if (pi >= 0 && state.pose.length) {
+    const r = state.pose[pi];
+    $("vXZ").textContent = fmt(r.tx, 2) + ", " + fmt(r.tz, 2);
+    $("vY").textContent = fmt(r.ty, 2);
+    $("vTrack").textContent = r.tracking_state || "—";
+  }
+
   // ラベル (現在時刻を含む区間)
   const active = state.labels.find((l) =>
     t_ >= (l.t_start_mono_ns || 0) / NS && t_ <= (l.t_end_mono_ns || 0) / NS);
@@ -438,6 +516,7 @@ function seek(t) {
 
   drawImu(t_);
   drawGnss(t_);
+  drawTrajectory(t_);
 }
 
 function tick(now) {

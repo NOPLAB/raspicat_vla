@@ -90,6 +90,11 @@ class _SettingsSheetState extends State<_SettingsSheet> {
             4,
             8,
           ], (v) => setState(() => _c = _c.copyWith(cameraHz: v))),
+          _rateRow('姿勢', _c.poseHz, const [
+            15,
+            30,
+            60,
+          ], (v) => setState(() => _c = _c.copyWith(poseHz: v))),
           _rateRow('IMU', _c.imuHz, const [
             10,
             25,

@@ -10,6 +10,7 @@ library;
 class LoggerConfig {
   const LoggerConfig({
     this.cameraHz = 4.0,
+    this.poseHz = 30.0,
     this.imuHz = 50.0,
     this.gnssHz = 1.0,
     this.jpegQuality = 85,
@@ -17,8 +18,12 @@ class LoggerConfig {
     this.driveFolderId,
   });
 
-  /// カメラ保存周期 [Hz]。startImageStream の最新フレームをこの周期で JPEG 化。
+  /// カメラ保存周期 [Hz]。AR セッションが出す最新フレームをこの周期で JPEG 化。
   final double cameraHz;
+
+  /// VIO 姿勢 (ARKit/ARCore) の保存周期 [Hz]。カメラより密に採り、変換側の
+  /// フレーム↔姿勢の最近傍整列を数 ms 以内に保つ。端末の AR フレームレートが上限。
+  final double poseHz;
 
   /// IMU サンプリング周期 [Hz]。端末が対応する最寄りのレートに丸められる。
   final double imuHz;
@@ -37,6 +42,7 @@ class LoggerConfig {
 
   LoggerConfig copyWith({
     double? cameraHz,
+    double? poseHz,
     double? imuHz,
     double? gnssHz,
     int? jpegQuality,
@@ -45,6 +51,7 @@ class LoggerConfig {
   }) {
     return LoggerConfig(
       cameraHz: cameraHz ?? this.cameraHz,
+      poseHz: poseHz ?? this.poseHz,
       imuHz: imuHz ?? this.imuHz,
       gnssHz: gnssHz ?? this.gnssHz,
       jpegQuality: jpegQuality ?? this.jpegQuality,
@@ -54,4 +61,6 @@ class LoggerConfig {
   }
 
   Duration get cameraPeriod => Duration(microseconds: (1e6 / cameraHz).round());
+
+  Duration get posePeriod => Duration(microseconds: (1e6 / poseHz).round());
 }

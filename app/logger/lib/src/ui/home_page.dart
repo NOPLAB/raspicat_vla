@@ -3,7 +3,6 @@
 /// UI は白黒モノトーンの銘板調 (アクセント色を使わない)。
 library;
 
-import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 
 import '../recorder.dart';
@@ -78,7 +77,6 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     final rec = _rec.isRecording;
-    final controller = _rec.camera.controller;
     return Scaffold(
       appBar: AppBar(
         title: const Text('VLA Logger'),
@@ -105,8 +103,8 @@ class _HomePageState extends State<HomePage> {
             child: Container(
               color: Colors.black,
               width: double.infinity,
-              child: controller != null && controller.value.isInitialized
-                  ? CameraPreview(controller)
+              child: _rec.camera.isReady
+                  ? _rec.camera.buildPreview()
                   : const Center(
                       child: CircularProgressIndicator(color: Colors.white),
                     ),
@@ -202,7 +200,8 @@ class _StatusBar extends StatelessWidget {
     final c = recorder.config;
     final text = recorder.isRecording
         ? 'REC  ${recorder.sessionId}'
-        : 'IDLE  cam ${c.cameraHz}Hz / imu ${c.imuHz}Hz / gnss ${c.gnssHz}Hz';
+        : 'IDLE  cam ${c.cameraHz}Hz / pose ${c.poseHz}Hz / '
+              'imu ${c.imuHz}Hz / gnss ${c.gnssHz}Hz';
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),

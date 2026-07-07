@@ -3,7 +3,7 @@
 /// レイアウトは docs/design/logger_app_spec.md §3 の通り:
 ///   `<base>/logger_sessions/<session_id>/`
 ///     meta.json / camera/frames/*.jpg / camera/frames.csv /
-///     imu/imu.csv / gnss/gnss.csv / audio/*.wav / labels.jsonl
+///     pose/pose.csv / imu/imu.csv / gnss/gnss.csv / audio/*.wav / labels.jsonl
 library;
 
 import 'dart:convert';
@@ -23,11 +23,13 @@ class SessionWriter {
   final MonoClock clock;
 
   late final IOSink _framesCsv;
+  late final IOSink _poseCsv;
   late final IOSink _imuCsv;
   late final IOSink _gnssCsv;
   late final IOSink _labels;
 
   int _frameNo = 0;
+  int _poseNo = 0;
   int _audioNo = 0;
   bool _closed = false;
 
@@ -55,6 +57,7 @@ class SessionWriter {
     await Directory(
       p.join(dir.path, 'camera', 'frames'),
     ).create(recursive: true);
+    await Directory(p.join(dir.path, 'pose')).create(recursive: true);
     await Directory(p.join(dir.path, 'imu')).create(recursive: true);
     await Directory(p.join(dir.path, 'gnss')).create(recursive: true);
     await Directory(p.join(dir.path, 'audio')).create(recursive: true);
@@ -63,6 +66,11 @@ class SessionWriter {
     w._framesCsv = File(p.join(dir.path, 'camera', 'frames.csv')).openWrite(
       mode: FileMode.write,
     )..writeln('frame_no,t_mono_ns,width,height');
+    // 姿勢は world 座標系の位置(m) + クォータニオン。座標規約は meta.platform で
+    // 判別 (ARKit=.gravity / ARCore 既定、共に Y-up 右手系だが軸の向きが異なる)。
+    w._poseCsv = File(p.join(dir.path, 'pose', 'pose.csv')).openWrite(
+      mode: FileMode.write,
+    )..writeln('t_mono_ns,tx,ty,tz,qx,qy,qz,qw,tracking_state');
     w._imuCsv = File(p.join(dir.path, 'imu', 'imu.csv')).openWrite(
       mode: FileMode.write,
     )..writeln('t_mono_ns,ax,ay,az,gx,gy,gz,mx,my,mz');
@@ -82,6 +90,24 @@ class SessionWriter {
     await File(p.join(dir.path, 'camera', 'frames', name)).writeAsBytes(jpeg);
     _framesCsv.writeln('$no,$tNs,$width,$height');
     return no;
+  }
+
+  /// VIO 姿勢 1 サンプルを pose.csv に追記する。位置(tx,ty,tz)はメートル、
+  /// (qx,qy,qz,qw)は world→camera の回転クォータニオン。座標規約の正規化は
+  /// せず生のまま残す (変換側が meta.platform を見て position/yaw へ落とす)。
+  void addPose(
+    int tNs,
+    double tx,
+    double ty,
+    double tz,
+    double qx,
+    double qy,
+    double qz,
+    double qw,
+    String trackingState,
+  ) {
+    _poseNo++;
+    _poseCsv.writeln('$tNs,$tx,$ty,$tz,$qx,$qy,$qz,$qw,$trackingState');
   }
 
   /// 生の加速度 (a)・ジャイロ (g)・磁気 (m)。フュージョンは変換側で行う。
@@ -159,11 +185,13 @@ class SessionWriter {
       'session_end_mono_ns': clock.nowNs(),
       'config': {
         'camera_hz': config.cameraHz,
+        'pose_hz': config.poseHz,
         'imu_hz': config.imuHz,
         'gnss_hz': config.gnssHz,
         'jpeg_quality': config.jpegQuality,
       },
       'frame_count': _frameNo,
+      'pose_count': _poseNo,
       'audio_count': _audioNo,
     };
     await File(
@@ -171,6 +199,8 @@ class SessionWriter {
     ).writeAsString(const JsonEncoder.withIndent('  ').convert(meta));
     await _framesCsv.flush();
     await _framesCsv.close();
+    await _poseCsv.flush();
+    await _poseCsv.close();
     await _imuCsv.flush();
     await _imuCsv.close();
     await _gnssCsv.flush();

@@ -77,5 +77,10 @@
 	<string>軌跡推定のため IMU を記録します</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>音声メモの文字起こしに使用します</string>
+	<!-- AR 必須: ARKit 非対応端末では App Store から入手不可にする -->
+	<key>UIRequiredDeviceCapabilities</key>
+	<array>
+		<string>arkit</string>
+	</array>
 </dict>
 </plist>

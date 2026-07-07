@@ -8,10 +8,12 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import 'capture/ar_session.dart';
 import 'capture/audio_capture.dart';
 import 'capture/camera_capture.dart';
 import 'capture/gnss_capture.dart';
 import 'capture/imu_capture.dart';
+import 'capture/pose_capture.dart';
 import 'config.dart';
 import 'session/mono_clock.dart';
 import 'session/session_writer.dart';
@@ -28,12 +30,18 @@ class Recorder extends ChangeNotifier {
   final String appVersion;
   LoggerConfig config;
 
+  // AR (ARKit/ARCore) セッションはカメラフレームと VIO 姿勢の共通供給源。
+  // camera (フレーム) と pose (姿勢) が同じ 1 セッションを共有する。
+  final ArSession _ar = ArSession();
+
   late final CameraCapture camera = CameraCapture(
+    ar: _ar,
     config: config,
     clock: _clock,
   );
   ImuCapture? _imu;
   GnssCapture? _gnss;
+  PoseCapture? _pose;
   AudioCapture? _audio;
 
   // 全キャプチャ (カメラ含む) が共有する唯一の時計。差し替えず reset で 0 に戻す
@@ -45,7 +53,8 @@ class Recorder extends ChangeNotifier {
   bool get isTalking => _audio?.isRecording ?? false;
   String? get sessionId => _writer?.sessionId;
 
-  /// カメラプレビューを初期化する (起動時に 1 度)。
+  /// AR (カメラ+姿勢) セッションを初期化しプレビューを開始する (起動時に 1 度)。
+  /// AR 非対応端末では例外を投げる (このアプリは AR 必須)。
   Future<void> initCamera() => camera.initialize();
 
   void updateConfig(LoggerConfig c) {
@@ -81,6 +90,7 @@ class Recorder extends ChangeNotifier {
     }
 
     camera.startRecording(writer);
+    _pose = PoseCapture(ar: _ar, clock: _clock)..start(writer);
     _imu = ImuCapture(config: config, clock: _clock)..start(writer);
     _gnss = GnssCapture(config: config, clock: _clock)..start(writer);
     _audio = AudioCapture(clock: _clock);
@@ -93,10 +103,12 @@ class Recorder extends ChangeNotifier {
     if (writer == null) return null;
     _writer = null;
 
-    camera.stopRecording();
+    await camera.stopRecording();
+    await _pose?.stop();
     await _imu?.stop();
     await _gnss?.stop();
     await _audio?.dispose();
+    _pose = null;
     _imu = null;
     _gnss = null;
     _audio = null;
