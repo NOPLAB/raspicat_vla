@@ -2,7 +2,7 @@
   "name": "raspicat-vla-web",
   "private": true,
   "version": "0.1.0",
-  "packageManager": "pnpm@10.28.0",
+  "packageManager": "pnpm@10.34.4",
   "scripts": {
     "postinstall": "node scripts/copy_ort_assets.mjs",
     "sync-assets": "bash scripts/sync_assets.sh && node scripts/gen_model_manifest.mjs",
@@ -15,17 +15,17 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "next": "^15.5.0",
+    "next": "^16.0.0",
     "onnxruntime-web": "^1.22.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.2",
-    "@types/node": "^22.10.0",
+    "@types/node": "^24.0.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
-    "typescript": "^5.7.0",
-    "vitest": "^3.0.0"
+    "typescript": "^6.0.0",
+    "vitest": "^4.0.0"
   }
 }
