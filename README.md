@@ -11,18 +11,25 @@ The repository defines a model-agnostic edge / remote split: the lightweight
 edge runs on the robot, a remote workstation hosts the heavy VLA policy, and a
 gRPC stream carries observations one way and action embeddings the other. The
 same interface supports multiple backends — the dummy server (for CI / MVP),
-[AsyncVLA](https://asyncvla.github.io/), and
-[OmniVLA](https://omnivla-nav.github.io/). For OmniVLA-edge the policy can also
-run fully on-robot with no cloud (`--mode edge-local`).
+[AsyncVLA](https://asyncvla.github.io/),
+[OmniVLA](https://omnivla-nav.github.io/), and `movla` (the in-house LFM2.5-VL
+Stage A policy from [`external/movla`](https://github.com/NOPLAB/movla)). For
+OmniVLA-edge the policy can also run fully on-robot with no cloud
+(`--mode edge-local`).
 
 A separate effort ports OmniVLA-edge off the workstation entirely:
 
-- `app/` — Flutter smartphone app: on-device ONNX inference; the phone streams
-  action chunks to the Pi over its own gRPC interface
+- `app/inference/` — Flutter smartphone app: on-device ONNX inference; the phone
+  streams action chunks to the Pi over its own gRPC interface
   (`proto/edge_action.proto`). See [`docs/design/mobile_port_spec.md`](docs/design/mobile_port_spec.md).
 - `web/` — browser sibling of the mobile port (Next.js static export,
   onnxruntime-web / WebGPU); chunks go to the Pi over WebSocket. See
   [`docs/design/web_port_spec.md`](docs/design/web_port_spec.md).
+
+Independently, `app/logger/` is a standalone Flutter data-logging app for VLA
+fine-tuning: it captures camera / IMU / GNSS / audio to raw per-session logs and
+does **no** inference (offline conversion + prompt labeling happen downstream).
+See [`docs/design/logger_app_spec.md`](docs/design/logger_app_spec.md).
 
 ## Workspace layout
 
@@ -32,7 +39,7 @@ This repository is itself a colcon workspace.
 src/raspicat_vla_msgs/      # ROS2 messages, services, actions (model-agnostic)
 src/raspicat_vla_proto/     # gRPC python stubs + ROS2 ⇄ proto conversion helpers
 src/raspicat_vla_core/      # ROS-free OmniVLA-edge inference core (shared by edge & remote)
-src/raspicat_vla_remote/    # gRPC server: dummy / AsyncVLA / OmniVLA backends
+src/raspicat_vla_remote/    # gRPC server: dummy / AsyncVLA / OmniVLA / movla backends
 src/raspicat_vla_edge/      # Edge ROS2 nodes (lifecycle, adapters, path follower,
                             #   phone/browser action receivers)
 src/raspicat_vla_bringup/   # Launch composition
@@ -41,10 +48,11 @@ src/raspicat_vla_bringup/   # Launch composition
 Not built by colcon:
 
 ```
-app/                        # Flutter smartphone port (Dart toolchain, see app/README.md)
+app/inference/              # Flutter on-device inference port (Dart, app/inference/README.md)
+app/logger/                 # Flutter VLA data-logger app (Dart, app/logger/README.md)
 web/                        # Browser port (pnpm toolchain, see web/README.md)
 docker/                     # Dockerfiles + compose topology for every run mode
-external/                   # Research submodules: AsyncVLA, OmniVLA, MBRA,
+external/                   # Research submodules: AsyncVLA, OmniVLA, MBRA, movla,
                             #   raspicat-sim-docker (reference code)
 models/                     # VLA weights, gitignored — scripts/download_*.sh
 ```
@@ -67,7 +75,7 @@ Pi the server).
 
 `scripts/gen_proto.sh` regenerates the Python stubs for both (into
 `src/raspicat_vla_proto/raspicat_vla_proto/`, gitignored) and the Dart stubs
-for `edge_action.proto` (into `app/lib/src/grpc/gen/`, committed).
+for `edge_action.proto` (into `app/inference/lib/src/grpc/gen/`, committed).
 
 ## Build
 
@@ -95,7 +103,7 @@ list; the full operator guide lives at [`docs/USAGE.md`](docs/USAGE.md). A
 quick orientation:
 
 * `scripts/vla.sh build TARGET` — build one of the images
-  (`asyncvla`, `omnivla`, `real`, `sim`, `test`, plus `*-jetson` for ARM64).
+  (`asyncvla`, `omnivla`, `movla`, `real`, `sim`, `test`, plus `*-jetson` for ARM64).
 * `--mode remote {--cpu|--gpu}` — host the cloud-side gRPC server here.
 * `--mode edge --host HOST[:PORT]` — on-robot edge stack pointed at a remote.
 * `--mode cmd_vel` — all-in-one on this host, no robot: remote + edge in two
