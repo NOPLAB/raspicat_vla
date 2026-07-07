@@ -51,7 +51,7 @@ class _HomePageState extends State<HomePage> {
       }
     } else {
       try {
-        await _rec.start();
+        await _rec.start(initialPrompt: _promptCtrl.text);
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(
@@ -119,9 +119,9 @@ class _HomePageState extends State<HomePage> {
               children: [
                 TextField(
                   controller: _promptCtrl,
-                  decoration: const InputDecoration(
-                    labelText: '意味づけ prompt (任意)',
-                    border: OutlineInputBorder(),
+                  decoration: InputDecoration(
+                    labelText: rec ? '途中経過ラベル（任意）' : '初期ラベル（任意）',
+                    border: const OutlineInputBorder(),
                     isDense: true,
                   ),
                   onSubmitted: (_) => _addTextLabel(),

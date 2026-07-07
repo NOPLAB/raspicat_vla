@@ -54,7 +54,11 @@ class Recorder extends ChangeNotifier {
   }
 
   /// 新しいセッションを開始し、カメラ/IMU/GNSS の書き出しを始める。
-  Future<void> start() async {
+  ///
+  /// [initialPrompt] が空でなければセッション先頭 (t≈0) の意味づけラベルとして
+  /// 記録する。録画前にプロンプトを入力しておけば、その内容がセッション全体の
+  /// 指示として最初から残る。
+  Future<void> start({String initialPrompt = ''}) async {
     if (isRecording) return;
     // 共有時計を 0 に戻す (差し替えない)。以降 camera/imu/gnss/audio/label が
     // 同一 session-relative な t_mono_ns を打つ。
@@ -65,6 +69,16 @@ class Recorder extends ChangeNotifier {
       clock: _clock,
     );
     _writer = writer;
+
+    if (initialPrompt.trim().isNotEmpty) {
+      final now = _clock.nowNs();
+      writer.addLabel(
+        tStartNs: now,
+        tEndNs: now,
+        prompt: initialPrompt.trim(),
+        source: 'app',
+      );
+    }
 
     camera.startRecording(writer);
     _imu = ImuCapture(config: config, clock: _clock)..start(writer);
