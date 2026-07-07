@@ -3,12 +3,16 @@
 # --config で参照される。ament_flake8 のデフォルト (max-line-length=99) に合わせる。
 [flake8]
 max-line-length = 99
-# I:   import-order (flake8-import-order)。既存コードの import 順と乖離が大きく、
-#      自動修正手段もないため無効化。
-# D:   docstring (flake8-docstrings)。docstring は ament_pep257 側でチェックする。
-# Q:   quotes (flake8-quotes)。引用符スタイルは強制しない。
-# B,C: ament_flake8 デフォルト設定が ignore しているものに合わせる。
-extend-ignore = B902, C816, D, I, Q
+# I:     import-order (flake8-import-order)。既存コードの import 順と乖離が大きく、
+#        自動修正手段もないため無効化。
+# D:     docstring (flake8-docstrings)。docstring は ament_pep257 側でチェックする。
+# Q:     quotes (flake8-quotes)。引用符スタイルは強制しない。
+# B,C:   ament_flake8 デフォルト設定が ignore しているものに合わせる。
+# C408:  dict() リテラル化 (flake8-comprehensions)。_MODEL_PARAMS は上流
+#        run_omnivla_edge.py の model_params をそのまま写す意図で dict() のままにする。
+# CNL100: class 定義直後の空行を強制する (flake8-class-newline)。本リポジトリの
+#        スタイル (空行なし) と合わないため無効化。
+extend-ignore = B902, C408, C816, CNL100, D, I, Q
 import-order-style = google
 # 注意: ./ 無しの裸のパターンは同名ディレクトリすべてに一致する
 # (例: "models" は src/raspicat_vla_core/raspicat_vla_core/models/ も除外してしまう)。
