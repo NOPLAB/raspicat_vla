@@ -36,7 +36,9 @@ class Recorder extends ChangeNotifier {
   GnssCapture? _gnss;
   AudioCapture? _audio;
 
-  MonoClock _clock = MonoClock();
+  // 全キャプチャ (カメラ含む) が共有する唯一の時計。差し替えず reset で 0 に戻す
+  // — 差し替えると late final の camera が旧インスタンスを掴んで時計系がズレる。
+  final MonoClock _clock = MonoClock();
   SessionWriter? _writer;
 
   bool get isRecording => _writer != null;
@@ -54,7 +56,9 @@ class Recorder extends ChangeNotifier {
   /// 新しいセッションを開始し、カメラ/IMU/GNSS の書き出しを始める。
   Future<void> start() async {
     if (isRecording) return;
-    _clock = MonoClock();
+    // 共有時計を 0 に戻す (差し替えない)。以降 camera/imu/gnss/audio/label が
+    // 同一 session-relative な t_mono_ns を打つ。
+    _clock.reset();
     final writer = await SessionWriter.create(
       baseDir: baseDir,
       config: config,
@@ -62,7 +66,6 @@ class Recorder extends ChangeNotifier {
     );
     _writer = writer;
 
-    // clock が新しくなるので capture も作り直す。
     camera.startRecording(writer);
     _imu = ImuCapture(config: config, clock: _clock)..start(writer);
     _gnss = GnssCapture(config: config, clock: _clock)..start(writer);
