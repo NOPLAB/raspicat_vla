@@ -2,5 +2,13 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended"
+  ],
+  "packageRules": [
+    {
+      "description": "ROS2 Humble の apt パッケージは Ubuntu 22.04 のみ対応。CI ランナーの ubuntu 更新は却下 (ci-lint.yml の runs-on: ubuntu-22.04 を参照)",
+      "matchManagers": ["github-actions"],
+      "matchDepNames": ["ubuntu"],
+      "enabled": false
+    }
   ]
 }
