@@ -32,7 +32,8 @@ class _SessionListPageState extends State<SessionListPage> {
 
   Future<void> _load() async {
     final root = Directory(
-        p.join(widget.recorder.baseDir.path, 'logger_sessions'));
+      p.join(widget.recorder.baseDir.path, 'logger_sessions'),
+    );
     final list = <Directory>[];
     if (await root.exists()) {
       await for (final e in root.list()) {
@@ -45,8 +46,7 @@ class _SessionListPageState extends State<SessionListPage> {
 
   void _snack(String msg) {
     if (mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(msg)));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     }
   }
 
@@ -87,10 +87,7 @@ class _SessionListPageState extends State<SessionListPage> {
       appBar: AppBar(
         title: const Text('セッション'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _load,
-          ),
+          IconButton(icon: const Icon(Icons.refresh), onPressed: _load),
         ],
       ),
       body: _sessions.isEmpty
@@ -103,25 +100,27 @@ class _SessionListPageState extends State<SessionListPage> {
                 final id = p.basename(dir.path);
                 final busy = _busy == id;
                 return ListTile(
-                  title: Text(id,
-                      style: const TextStyle(fontFamily: 'monospace')),
-                  subtitle: _busy != null && busy
-                      ? const Text('処理中…')
-                      : null,
+                  title: Text(
+                    id,
+                    style: const TextStyle(fontFamily: 'monospace'),
+                  ),
+                  subtitle: _busy != null && busy ? const Text('処理中…') : null,
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       IconButton(
                         icon: const Icon(Icons.archive_outlined),
                         tooltip: 'zip 保存',
-                        onPressed:
-                            _busy == null ? () => _exportLocal(dir) : null,
+                        onPressed: _busy == null
+                            ? () => _exportLocal(dir)
+                            : null,
                       ),
                       IconButton(
                         icon: const Icon(Icons.cloud_upload_outlined),
                         tooltip: 'Drive 送信',
-                        onPressed:
-                            _busy == null ? () => _uploadDrive(dir) : null,
+                        onPressed: _busy == null
+                            ? () => _uploadDrive(dir)
+                            : null,
                       ),
                     ],
                   ),

@@ -31,8 +31,9 @@ class GnssCapture {
       accuracy: LocationAccuracy.best,
       distanceFilter: 0,
     );
-    _sub = Geolocator.getPositionStream(locationSettings: settings)
-        .listen((pos) {
+    _sub = Geolocator.getPositionStream(locationSettings: settings).listen((
+      pos,
+    ) {
       final tNs = clock.nowNs();
       if (tNs - _lastWriteNs < _periodNs) return;
       _lastWriteNs = tNs;

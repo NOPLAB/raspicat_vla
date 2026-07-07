@@ -37,8 +37,8 @@ void main() {
     expect(await File('${dir.path}/gnss/gnss.csv').exists(), true);
     expect(await File('${dir.path}/labels.jsonl').exists(), true);
 
-    final meta = jsonDecode(
-        await File('${dir.path}/meta.json').readAsString()) as Map;
+    final meta =
+        jsonDecode(await File('${dir.path}/meta.json').readAsString()) as Map;
     expect(meta['frame_count'], 1);
     expect(meta['embodiment'], 'raspicat');
 

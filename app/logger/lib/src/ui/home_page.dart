@@ -54,8 +54,9 @@ class _HomePageState extends State<HomePage> {
         await _rec.start();
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context)
-              .showSnackBar(SnackBar(content: Text('開始失敗: $e')));
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('開始失敗: $e')));
         }
       }
     }
@@ -94,9 +95,7 @@ class _HomePageState extends State<HomePage> {
           IconButton(
             icon: const Icon(Icons.tune),
             tooltip: '設定',
-            onPressed: rec
-                ? null
-                : () => showSettingsSheet(context, _rec),
+            onPressed: rec ? null : () => showSettingsSheet(context, _rec),
           ),
         ],
       ),

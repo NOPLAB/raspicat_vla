@@ -66,9 +66,7 @@ class _BootState extends State<_Boot> {
         future: _future,
         builder: (context, snap) {
           if (snap.hasError) {
-            return Scaffold(
-              body: Center(child: Text('初期化エラー: ${snap.error}')),
-            );
+            return Scaffold(body: Center(child: Text('初期化エラー: ${snap.error}')));
           }
           if (!snap.hasData) {
             return const Scaffold(

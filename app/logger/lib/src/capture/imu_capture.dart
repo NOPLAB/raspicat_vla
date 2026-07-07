@@ -31,21 +31,37 @@ class ImuCapture {
   void start(SessionWriter writer) {
     _writer = writer;
     final period = _period;
-    _subs.add(gyroscopeEventStream(samplingPeriod: period).listen((e) {
-      _gx = e.x;
-      _gy = e.y;
-      _gz = e.z;
-    }));
-    _subs.add(magnetometerEventStream(samplingPeriod: period).listen((e) {
-      _mx = e.x;
-      _my = e.y;
-      _mz = e.z;
-    }));
+    _subs.add(
+      gyroscopeEventStream(samplingPeriod: period).listen((e) {
+        _gx = e.x;
+        _gy = e.y;
+        _gz = e.z;
+      }),
+    );
+    _subs.add(
+      magnetometerEventStream(samplingPeriod: period).listen((e) {
+        _mx = e.x;
+        _my = e.y;
+        _mz = e.z;
+      }),
+    );
     // 加速度を基準ティックにする (最新のジャイロ/磁気を同じ行へ)。
-    _subs.add(accelerometerEventStream(samplingPeriod: period).listen((e) {
-      _writer?.addImu(
-          clock.nowNs(), e.x, e.y, e.z, _gx, _gy, _gz, _mx, _my, _mz);
-    }));
+    _subs.add(
+      accelerometerEventStream(samplingPeriod: period).listen((e) {
+        _writer?.addImu(
+          clock.nowNs(),
+          e.x,
+          e.y,
+          e.z,
+          _gx,
+          _gy,
+          _gz,
+          _mx,
+          _my,
+          _mz,
+        );
+      }),
+    );
   }
 
   Future<void> stop() async {

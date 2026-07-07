@@ -42,7 +42,8 @@ class SessionWriter {
     // session_id は開始壁時計から採番 (アプリ内では乱数を避け、UI 操作で確定する
     // タイムスタンプを使う。衝突回避に ms 精度)。
     final ts = DateTime.fromMillisecondsSinceEpoch(clock.wallAnchorMs);
-    final id = 'sess_'
+    final id =
+        'sess_'
         '${ts.year.toString().padLeft(4, '0')}'
         '${ts.month.toString().padLeft(2, '0')}'
         '${ts.day.toString().padLeft(2, '0')}_'
@@ -51,23 +52,26 @@ class SessionWriter {
         '${ts.second.toString().padLeft(2, '0')}';
 
     final dir = Directory(p.join(baseDir.path, 'logger_sessions', id));
-    await Directory(p.join(dir.path, 'camera', 'frames')).create(recursive: true);
+    await Directory(
+      p.join(dir.path, 'camera', 'frames'),
+    ).create(recursive: true);
     await Directory(p.join(dir.path, 'imu')).create(recursive: true);
     await Directory(p.join(dir.path, 'gnss')).create(recursive: true);
     await Directory(p.join(dir.path, 'audio')).create(recursive: true);
 
     final w = SessionWriter._(dir, config, clock);
-    w._framesCsv = File(p.join(dir.path, 'camera', 'frames.csv'))
-        .openWrite(mode: FileMode.write)
-      ..writeln('frame_no,t_mono_ns,width,height');
-    w._imuCsv = File(p.join(dir.path, 'imu', 'imu.csv'))
-        .openWrite(mode: FileMode.write)
-      ..writeln('t_mono_ns,ax,ay,az,gx,gy,gz,mx,my,mz');
-    w._gnssCsv = File(p.join(dir.path, 'gnss', 'gnss.csv'))
-        .openWrite(mode: FileMode.write)
-      ..writeln('t_mono_ns,lat,lon,alt,acc,speed,bearing');
-    w._labels =
-        File(p.join(dir.path, 'labels.jsonl')).openWrite(mode: FileMode.write);
+    w._framesCsv = File(p.join(dir.path, 'camera', 'frames.csv')).openWrite(
+      mode: FileMode.write,
+    )..writeln('frame_no,t_mono_ns,width,height');
+    w._imuCsv = File(p.join(dir.path, 'imu', 'imu.csv')).openWrite(
+      mode: FileMode.write,
+    )..writeln('t_mono_ns,ax,ay,az,gx,gy,gz,mx,my,mz');
+    w._gnssCsv = File(p.join(dir.path, 'gnss', 'gnss.csv')).openWrite(
+      mode: FileMode.write,
+    )..writeln('t_mono_ns,lat,lon,alt,acc,speed,bearing');
+    w._labels = File(
+      p.join(dir.path, 'labels.jsonl'),
+    ).openWrite(mode: FileMode.write);
     return w;
   }
 
@@ -81,13 +85,30 @@ class SessionWriter {
   }
 
   /// 生の加速度 (a)・ジャイロ (g)・磁気 (m)。フュージョンは変換側で行う。
-  void addImu(int tNs, double ax, double ay, double az, double gx, double gy,
-      double gz, double mx, double my, double mz) {
+  void addImu(
+    int tNs,
+    double ax,
+    double ay,
+    double az,
+    double gx,
+    double gy,
+    double gz,
+    double mx,
+    double my,
+    double mz,
+  ) {
     _imuCsv.writeln('$tNs,$ax,$ay,$az,$gx,$gy,$gz,$mx,$my,$mz');
   }
 
-  void addGnss(int tNs, double lat, double lon, double alt, double acc,
-      double speed, double bearing) {
+  void addGnss(
+    int tNs,
+    double lat,
+    double lon,
+    double alt,
+    double acc,
+    double speed,
+    double bearing,
+  ) {
     _gnssCsv.writeln('$tNs,$lat,$lon,$alt,$acc,$speed,$bearing');
   }
 
@@ -108,14 +129,16 @@ class SessionWriter {
     String? transcript,
     String source = 'app',
   }) {
-    _labels.writeln(jsonEncode({
-      't_start_mono_ns': tStartNs,
-      't_end_mono_ns': tEndNs,
-      'prompt': prompt,
-      'audio_clip': ?audioClip,
-      'transcript': ?transcript,
-      'source': source,
-    }));
+    _labels.writeln(
+      jsonEncode({
+        't_start_mono_ns': tStartNs,
+        't_end_mono_ns': tEndNs,
+        'prompt': prompt,
+        'audio_clip': ?audioClip,
+        'transcript': ?transcript,
+        'source': source,
+      }),
+    );
   }
 
   /// meta.json を書き、全シンクを flush/close する。冪等。
@@ -143,8 +166,9 @@ class SessionWriter {
       'frame_count': _frameNo,
       'audio_count': _audioNo,
     };
-    await File(p.join(dir.path, 'meta.json'))
-        .writeAsString(const JsonEncoder.withIndent('  ').convert(meta));
+    await File(
+      p.join(dir.path, 'meta.json'),
+    ).writeAsString(const JsonEncoder.withIndent('  ').convert(meta));
     await _framesCsv.flush();
     await _framesCsv.close();
     await _imuCsv.flush();

@@ -1,12 +1,12 @@
-# app/ (Flutter スマホアプリ) の CI。フォーマット・静的解析・ユニットテストのみで、
-# APK/IPA のビルドは行わない (署名やモデルアセットが必要なため)。
+# app/ 配下の Flutter アプリ (inference / logger) の CI。フォーマット・静的解析・
+# ユニットテストのみで、APK/IPA のビルドは行わない (署名やモデルアセットが必要なため)。
 #
 # 注意:
-# - assets/{models,clip}/ の ONNX モデルは git 管理外だが、pubspec はディレクトリ
-#   ごと宣言しているので README だけでもテストは通る (欠けている場合はアプリが
-#   ダミー軌道にフォールバックする設計)。
-# - lib/src/grpc/gen/ は scripts/gen_proto.sh が生成するコミット済みスタブ。
-#   フォーマットチェックの対象外とする。
+# - inference の assets/{models,clip}/ の ONNX モデルは git 管理外だが、pubspec は
+#   ディレクトリごと宣言しているので README だけでもテストは通る (欠けている場合は
+#   アプリがダミー軌道にフォールバックする設計)。logger はモデルアセットを持たない。
+# - inference の lib/src/grpc/gen/ は scripts/gen_proto.sh が生成するコミット済み
+#   スタブ。フォーマットチェックの対象外とする (logger には gen/ が無いので no-op)。
 name: ci-flutter
 
 on:
@@ -33,9 +33,13 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [inference, logger]
     defaults:
       run:
-        working-directory: app/inference
+        working-directory: app/${{ matrix.app }}
     steps:
       - uses: actions/checkout@v7
 

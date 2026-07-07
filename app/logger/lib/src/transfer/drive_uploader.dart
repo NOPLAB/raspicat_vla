@@ -57,7 +57,7 @@ class DriveUploader {
     // 既存認可を再利用し、無ければ対話で取得する。
     final authz =
         await account.authorizationClient.authorizationForScopes(_scopes) ??
-            await account.authorizationClient.authorizeScopes(_scopes);
+        await account.authorizationClient.authorizeScopes(_scopes);
     final client = authz.authClient(scopes: _scopes);
     try {
       final api = drive.DriveApi(client);

@@ -53,6 +53,5 @@ class LoggerConfig {
     );
   }
 
-  Duration get cameraPeriod =>
-      Duration(microseconds: (1e6 / cameraHz).round());
+  Duration get cameraPeriod => Duration(microseconds: (1e6 / cameraHz).round());
 }

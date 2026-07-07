@@ -16,7 +16,9 @@ import 'package:path/path.dart' as p;
 /// が、同期 I/O なので大セッションでは UI をブロックしうる (v1 の割り切り)。
 Future<File> exportSessionZip(Directory sessionDir) async {
   final id = p.basename(sessionDir.path);
-  final exportsDir = Directory(p.join(sessionDir.parent.parent.path, 'exports'));
+  final exportsDir = Directory(
+    p.join(sessionDir.parent.parent.path, 'exports'),
+  );
   await exportsDir.create(recursive: true);
   final zipPath = p.join(exportsDir.path, '$id.zip');
 

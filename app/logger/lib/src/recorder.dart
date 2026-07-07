@@ -18,14 +18,20 @@ import 'session/session_writer.dart';
 
 /// 録画状態を保持しキャプチャ群を駆動する。UI から ChangeNotifier として観測。
 class Recorder extends ChangeNotifier {
-  Recorder({required this.baseDir, required this.appVersion, LoggerConfig? config})
-      : config = config ?? const LoggerConfig();
+  Recorder({
+    required this.baseDir,
+    required this.appVersion,
+    LoggerConfig? config,
+  }) : config = config ?? const LoggerConfig();
 
   final Directory baseDir;
   final String appVersion;
   LoggerConfig config;
 
-  late final CameraCapture camera = CameraCapture(config: config, clock: _clock);
+  late final CameraCapture camera = CameraCapture(
+    config: config,
+    clock: _clock,
+  );
   ImuCapture? _imu;
   GnssCapture? _gnss;
   AudioCapture? _audio;

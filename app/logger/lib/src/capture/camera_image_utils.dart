@@ -16,7 +16,9 @@ img.Image cameraImageToRgb(CameraImage image) {
     case ImageFormatGroup.bgra8888:
       return _bgra8888ToRgb(image);
     default:
-      throw UnsupportedError('unsupported camera format: ${image.format.group}');
+      throw UnsupportedError(
+        'unsupported camera format: ${image.format.group}',
+      );
   }
 }
 
