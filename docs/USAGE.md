@@ -9,10 +9,12 @@
 サブコマンド・フラグの正確な一覧は `scripts/vla.sh --help` を参照。本書は
 usage テキストに書けない「どの組み合わせをいつ使うか」を扱う。
 
-なお `app/` (スマートフォン) と `web/` (ブラウザ) の移植 — 端末上で ONNX 推論
-して Pi に action をストリームする構成 — の送信側は本書の対象外
+なお `app/inference/` (スマートフォン) と `web/` (ブラウザ) の移植 — 端末上で
+ONNX 推論して Pi に action をストリームする構成 — の送信側は本書の対象外
 (`docs/design/mobile_port_spec.md` / `docs/design/web_port_spec.md` を参照)。
-Pi 側の受け口の起動だけは本書 §5.7 で扱う。
+Pi 側の受け口の起動だけは本書 §5.7 で扱う。もう一方の `app/logger/`
+(VLA 学習データロガー) は推論も本スタックも通さない完全に独立したアプリで、
+本書の対象外 (`docs/design/logger_app_spec.md` を参照)。
 
 ## 1. 概要
 
@@ -33,7 +35,8 @@ Pi 側の受け口の起動だけは本書 §5.7 で扱う。
   follower が `cmd_vel` に変換する。
 * **リモート側**は gRPC サーバ (`raspicat_vla_remote`) を立てる。バックエンド
   は `dummy` (CI/MVP)・`asyncvla` (Plan 2A)・`omnivla` (Plan 2B Path 1)・
-  `omnivla_edge` (Plan 2B Path 3) から選ぶ。
+  `omnivla_edge` (Plan 2B Path 3)・`movla` (自作 LFM2.5-VL Stage A ポリシー) から
+  選ぶ。
 * 例外が **Plan 2B Path 2** (`--mode edge-local`): OmniVLA-edge ポリシー全体を
   ロボット上で動かし、クラウドを一切使わない。
 * すべて Docker イメージとして提供。`scripts/vla.sh` が必要なマウント・ネット
@@ -82,6 +85,7 @@ ROS2 Humble が同梱)。ホスト側 ROS2 が必要になるのは §3.4 (colco
 scripts/vla.sh build --all              # すべて
 scripts/vla.sh build asyncvla           # リモート側 AsyncVLA
 scripts/vla.sh build omnivla            # リモート側 OmniVLA (omnivla_edge の remote も兼用)
+scripts/vla.sh build movla              # リモート側 movla (自作 Stage A, Jetson イメージなし)
 scripts/vla.sh build real               # エッジ側フル (raspicat_ros 同梱)
 scripts/vla.sh build sim                # エッジ側 + Gazebo
 scripts/vla.sh build test               # CPU のみのテスト用イメージ
@@ -109,6 +113,17 @@ HuggingFace 上のリポジトリは公開設定なのでトークンは不要�
 バックエンドの分だけ落とせば良い。`dummy` バックエンドはチェックポイント
 不要。
 
+`movla` は例外で HF になく、学習ボックスから rsync で取得する:
+
+```bash
+scripts/download_movla_checkpoint.sh          # → models/movla/stage_a_v2/  (default run)
+scripts/download_movla_checkpoint.sh RUN      # 別 run を指定
+```
+
+デフォルトは `nop@pve1ubuntu` の movla リポジトリ `runs/<run>/` を引く
+(`MOVLA_TRAIN_HOST` / `MOVLA_TRAIN_REPO` で上書き)。`checkpoint.pt` と
+`normalizer.json` が入る。
+
 ### 3.3 (任意) gRPC スタブの再生成
 
 `proto/*.proto` を編集したとき、および `omnivla_edge_mobile` モード (§5.7) を
@@ -120,7 +135,8 @@ scripts/gen_proto.sh
 
 `src/raspicat_vla_proto/raspicat_vla_proto/{raspicat_vla,edge_action}_pb2*.py`
 が再生成される (gitignore 対象)。`protoc-gen-dart` が入っていれば
-`app/lib/src/grpc/gen/` の Dart スタブも再生成される — こちらはコミットする。
+`app/inference/lib/src/grpc/gen/` の Dart スタブも再生成される — こちらは
+コミットする。
 
 ### 3.4 (任意) ネイティブ colcon ビルド
 
@@ -143,13 +159,14 @@ manifest 変更時は `vcs import src < raspicat.repos` を再実行する。Doc
 ### 4.1 MODEL (= リモートバックエンド)
 
 `vla.sh run MODEL …` の MODEL は
-`asyncvla | omnivla | omnivla_edge | omnivla_edge_mobile`:
+`asyncvla | omnivla | omnivla_edge | omnivla_edge_mobile | movla`:
 
 | MODEL          | 用途                                    | 重み                                   | resume step            | remote イメージ                 |
 |----------------|-----------------------------------------|----------------------------------------|------------------------|---------------------------------|
 | `asyncvla`     | AsyncVLA 推論 (Plan 2A)                 | `models/AsyncVLA_release/`             | `750000`               | `raspicat-vla-asyncvla`         |
 | `omnivla`      | OmniVLA-original 推論 (Path 1)          | `models/omnivla-original/`             | `120000`               | `raspicat-vla-omnivla`          |
 | `omnivla_edge` | OmniVLA-edge (Path 2 local / Path 3 remote) | `models/omnivla-edge/omnivla-edge.pth` | なし (素の state_dict) | `raspicat-vla-omnivla` (Path 3) |
+| `movla`        | 自作 LFM2.5-VL Stage A 推論 (§5.8)      | `models/movla/stage_a_v2/`             | — (checkpoint 内蔵)    | `raspicat-vla-movla` (Jetson なし) |
 | `omnivla_edge_mobile` | モバイル移植: スマホが推論、このホストは受信のみ (§5.7) | 不要 (モデルはスマホ側) | — | — (エッジ系イメージのみ) |
 
 resume step とウェイトパスは `scripts/vla.sh` の `RESUME_STEP` /
@@ -183,6 +200,11 @@ overlay (`docker/compose.{gpu,jetson,camera-*,sim-display}.yaml`) の追加
   `/dev/video0` プリセット、`realsense` は privileged + `/dev` bind で起動)。
   省略時は外部からフレームを供給する (別カメラ、
   `tools/publish_fake_image.py`、sim)。
+* **`--image-topic TOPIC`**: デバイスを in-process で掴まない構成
+  (`edge`/`cmd_vel`/`edge-local`/`sim`) でエッジがフレームを読むトピックを
+  変更する。`/compressed` で終わるトピックは `CompressedImage` (JPEG) として
+  購読される — カメラが別ホストにある場合 (raw `Image` は WiFi を越えられない)
+  は必ずこちらを使う (例: `--image-topic /camera/image_raw/compressed`)。
 * **`cmd_vel` の安全弁**: デフォルトではモータの繋がっていない
   `/cmd_vel_vla` に出す。実モータを回すには `--drive-motors` を明示する。
 * **フォールバック**: `edge`/`sim` は対応するフルイメージが未 build の場合、
@@ -328,9 +350,10 @@ scripts/vla.sh run omnivla --mode edge   --host 127.0.0.1   # または --mode s
 
 ### 5.7 モバイル/Web 移植の Pi 側受け口 (`omnivla_edge_mobile`)
 
-スマホ (`app/`) やブラウザ (`web/`) が **カメラ取得と推論の両方** を担い、
-このホストは action chunk を受けて追従するだけの構成。VLA サーバもカメラも
-立てない。
+スマホ (`app/inference/`) やブラウザ (`web/`) が **カメラ取得と推論の両方** を
+担い、このホストは action chunk を受けて追従するだけの構成。VLA サーバも
+カメラも立てない (受信は `edge_action_grpc_node`、WebSocket 版は
+`edge_action_ws_node`)。
 
 **gRPC 版 (スマホアプリ用, `proto/edge_action.proto`)**:
 
@@ -357,6 +380,28 @@ ros2 launch raspicat_vla_bringup phone_ws.launch.py    # port:=8765
 ```
 
 プロトコルや web 側の使い方は `docs/design/web_port_spec.md` を参照。
+
+### 5.8 movla (自作 LFM2.5-VL Stage A ポリシー)
+
+`external/movla` の自作ポリシーを配信する。ワイヤ形状は OmniVLA-edge Path 3 と
+同じメートルスケールの waypoint なので、エッジ側は path-only の `omnivla`
+アダプタが自動選択される (torch 不要)。分割トポロジも Path 3 と同一:
+
+```bash
+# 全ローカル (単一ホスト): CPU でも動く
+scripts/vla.sh run movla --mode cmd_vel --cpu       # GPU があれば --gpu
+
+# または GPU ワークステーションでサーバ、Pi でエッジ
+scripts/vla.sh run movla --mode remote --gpu --host 10.0.0.5
+scripts/vla.sh run movla --mode edge --host 10.0.0.5 --camera edge
+```
+
+重みは `models/movla/stage_a_v2/`
+(`scripts/download_movla_checkpoint.sh`、§3.2)。Stage A は言語のみのポリシーで
+学習済みインストラクションテンプレートしか知らないため、ゴールは
+`scripts/control.sh goal text "go straight ahead"` (ほか `"turn left ahead"` /
+`"turn right ahead"`) のようにテンプレート文言を使う。POSE/IMAGE ゴールや
+自由文は学習分布外になる。
 
 ## 6. 稼働中スタックの操作
 
@@ -644,6 +689,8 @@ HF トークンをクリア (`huggingface-cli logout`) してリトライ。期�
 * `src/raspicat_vla_edge/config/edge_params.yaml` — エッジパラメータ全件
 * `src/raspicat_vla_remote/raspicat_vla_remote/server_main.py` — リモート CLI
 * `scripts/download_*_checkpoints.sh` — HF モデル取得ヘルパ
+* `scripts/download_movla_checkpoint.sh` — movla 重み取得 (rsync、HF 非経由)
 * `raspicat.repos` — rt-net ソースバージョンのピン (vcstool マニフェスト)
-* `docs/design/mobile_port_spec.md` — スマートフォン移植 (`app/`) の仕様
+* `docs/design/mobile_port_spec.md` — スマートフォン推論移植 (`app/inference/`) の仕様
 * `docs/design/web_port_spec.md` — ブラウザ移植 (`web/`) の仕様
+* `docs/design/logger_app_spec.md` — VLA 学習データロガー (`app/logger/`) の仕様
