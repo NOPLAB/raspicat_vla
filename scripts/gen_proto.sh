@@ -21,11 +21,11 @@ sed -i 's/^import edge_action_pb2/from . import edge_action_pb2/' "${OUT_DIR}/ed
 echo "Generated:"
 ls -1 "${OUT_DIR}"/raspicat_vla_pb2*.py "${OUT_DIR}"/edge_action_pb2*.py
 
-# Dart stubs for the smartphone app (proto/edge_action.proto only). Optional:
+# Dart stubs for the inference app (proto/edge_action.proto only). Optional:
 # needs the Flutter/Dart toolchain + `dart pub global activate protoc_plugin`.
 # Generated files are committed (the Flutter build has no protoc step).
 DART_PLUGIN="${HOME}/.pub-cache/bin/protoc-gen-dart"
-DART_OUT="${REPO_ROOT}/app/lib/src/grpc/gen"
+DART_OUT="${REPO_ROOT}/app/inference/lib/src/grpc/gen"
 if [[ -x "${DART_PLUGIN}" ]]; then
     mkdir -p "${DART_OUT}"
     python3 -m grpc_tools.protoc \
